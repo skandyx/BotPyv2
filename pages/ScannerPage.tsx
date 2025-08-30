@@ -206,7 +206,7 @@ const ScannerPage: React.FC = () => {
     return <div className="flex justify-center items-center h-64"><Spinner /></div>;
   }
   
-  const totalColumnCount = 14;
+  const totalColumnCount = 12;
 
   return (
     <div className="space-y-6">
