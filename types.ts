@@ -69,6 +69,8 @@ export interface ScannedPair {
     is_in_squeeze_15m?: boolean; // Preparation
     volume_20_period_avg_15m?: number; // Confirmation
     atr_15m?: number; // For ATR Stop Loss calculation
+    adx_15m?: number; // For dynamic profile selection (trend strength)
+    atr_pct_15m?: number; // For dynamic profile selection (volatility)
     
     // --- Realtime Calculated Fields ---
     score: 'STRONG BUY' | 'BUY' | 'HOLD' | 'COOLDOWN' | 'COMPRESSION' | 'FAKE_BREAKOUT';
@@ -161,4 +163,9 @@ export interface BotSettings {
 
     // The single source of truth for the RSI safety filter toggle
     USE_RSI_SAFETY_FILTER: boolean;
+
+    // --- ADAPTIVE BEHAVIOR ---
+    USE_DYNAMIC_PROFILE_SELECTOR: boolean;
+    ADX_THRESHOLD_RANGE: number; // e.g., below 20 indicates a ranging market
+    ATR_PCT_THRESHOLD_VOLATILE: number; // e.g., above 5% indicates a volatile market
 }

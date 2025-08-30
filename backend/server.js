@@ -203,6 +203,10 @@ const loadData = async () => {
             USE_PARABOLIC_FILTER: true,
             PARABOLIC_FILTER_PERIOD_MINUTES: 5,
             PARABOLIC_FILTER_THRESHOLD_PCT: 3.0,
+            // Adaptive Behavior
+            USE_DYNAMIC_PROFILE_SELECTOR: process.env.USE_DYNAMIC_PROFILE_SELECTOR === 'true',
+            ADX_THRESHOLD_RANGE: parseInt(process.env.ADX_THRESHOLD_RANGE, 10) || 20,
+            ATR_PCT_THRESHOLD_VOLATILE: parseFloat(process.env.ATR_PCT_THRESHOLD_VOLATILE) || 5,
         };
         await saveData('settings');
     }
@@ -301,12 +305,17 @@ class RealtimeAnalyzer {
 
         const bbResult = BollingerBands.calculate({ period: 20, values: closes15m, stdDev: 2 });
         const atrResult = ATR.calculate({ high: highs15m, low: lows15m, close: closes15m, period: 14 });
+        const adxResult = ADX.calculate({ high: highs15m, low: lows15m, close: closes15m, period: 14 });
 
         if (bbResult.length < 2 || !atrResult.length) return;
 
-        pairToUpdate.atr_15m = atrResult[atrResult.length - 1];
-        
         const lastCandle = klines15m[klines15m.length - 1];
+        
+        // Update indicators for dynamic profile selection
+        pairToUpdate.atr_15m = atrResult[atrResult.length - 1];
+        pairToUpdate.adx_15m = adxResult.length ? adxResult[adxResult.length - 1].adx : undefined;
+        pairToUpdate.atr_pct_15m = pairToUpdate.atr_15m ? (pairToUpdate.atr_15m / lastCandle.close) * 100 : undefined;
+
         const lastBB = bbResult[bbResult.length - 1];
 
         // Update pair with CURRENT BB width for display purposes
@@ -672,36 +681,75 @@ async function runScannerCycle() {
     }
 }
 
+const settingProfiles = {
+    'Le Sniper': {
+        POSITION_SIZE_PCT: 2.0, MAX_OPEN_POSITIONS: 3, REQUIRE_STRONG_BUY: true, USE_RSI_SAFETY_FILTER: true,
+        RSI_OVERBOUGHT_THRESHOLD: 65, USE_PARABOLIC_FILTER: true, PARABOLIC_FILTER_PERIOD_MINUTES: 5,
+        PARABOLIC_FILTER_THRESHOLD_PCT: 2.5, USE_ATR_STOP_LOSS: true, ATR_MULTIPLIER: 1.5, USE_PARTIAL_TAKE_PROFIT: true,
+        PARTIAL_TP_TRIGGER_PCT: 0.8, PARTIAL_TP_SELL_QTY_PCT: 50, USE_AUTO_BREAKEVEN: true, BREAKEVEN_TRIGGER_PCT: 1.0,
+        ADJUST_BREAKEVEN_FOR_FEES: true, TRANSACTION_FEE_PCT: 0.1, USE_TRAILING_STOP_LOSS: true, TRAILING_STOP_LOSS_PCT: 2.5,
+        TAKE_PROFIT_PCT: 15.0,
+    },
+    'Le Scalpeur': {
+        POSITION_SIZE_PCT: 3.0, MAX_OPEN_POSITIONS: 5, REQUIRE_STRONG_BUY: false, USE_RSI_SAFETY_FILTER: true,
+        RSI_OVERBOUGHT_THRESHOLD: 70, USE_PARABOLIC_FILTER: true, PARABOLIC_FILTER_PERIOD_MINUTES: 5,
+        PARABOLIC_FILTER_THRESHOLD_PCT: 3.5, USE_ATR_STOP_LOSS: false, STOP_LOSS_PCT: 2.0, TAKE_PROFIT_PCT: 1.5,
+        USE_PARTIAL_TAKE_PROFIT: false, USE_AUTO_BREAKEVEN: false, ADJUST_BREAKEVEN_FOR_FEES: false,
+        TRANSACTION_FEE_PCT: 0.1, USE_TRAILING_STOP_LOSS: false,
+    },
+    'Le Chasseur de Volatilité': {
+        POSITION_SIZE_PCT: 4.0, MAX_OPEN_POSITIONS: 8, REQUIRE_STRONG_BUY: false, USE_RSI_SAFETY_FILTER: false,
+        RSI_OVERBOUGHT_THRESHOLD: 80, USE_PARABOLIC_FILTER: false, USE_ATR_STOP_LOSS: true, ATR_MULTIPLIER: 2.0,
+        TAKE_PROFIT_PCT: 10.0, USE_PARTIAL_TAKE_PROFIT: false, USE_AUTO_BREAKEVEN: true, BREAKEVEN_TRIGGER_PCT: 2.0,
+        ADJUST_BREAKEVEN_FOR_FEES: true, TRANSACTION_FEE_PCT: 0.1, USE_TRAILING_STOP_LOSS: true, TRAILING_STOP_LOSS_PCT: 1.2,
+    }
+};
 
 // --- Trading Engine ---
 const tradingEngine = {
     evaluateAndOpenTrade(pair, slPriceReference) {
         if (!botState.isRunning) return false;
         const s = botState.settings;
+        let tradeSettings = { ...s };
+
+        // --- DYNAMIC PROFILE SELECTOR ---
+        if (s.USE_DYNAMIC_PROFILE_SELECTOR) {
+            log('TRADE', `[DYNAMIC PROFILE] Analyzing conditions for ${pair.symbol}... ADX: ${pair.adx_15m?.toFixed(2)}, ATR%: ${pair.atr_pct_15m?.toFixed(2)}`);
+            if (pair.adx_15m !== undefined && pair.adx_15m < s.ADX_THRESHOLD_RANGE) {
+                log('TRADE', `[DYNAMIC PROFILE] Low ADX detected. Applying 'Le Scalpeur' profile.`);
+                tradeSettings = { ...tradeSettings, ...settingProfiles['Le Scalpeur'] };
+            } else if (pair.atr_pct_15m !== undefined && pair.atr_pct_15m > s.ATR_PCT_THRESHOLD_VOLATILE) {
+                log('TRADE', `[DYNAMIC PROFILE] High ATR % detected. Applying 'Le Chasseur de Volatilité' profile.`);
+                tradeSettings = { ...tradeSettings, ...settingProfiles['Le Chasseur de Volatilité'] };
+            } else {
+                log('TRADE', `[DYNAMIC PROFILE] Stable trend detected. Applying 'Le Sniper' profile.`);
+                tradeSettings = { ...tradeSettings, ...settingProfiles['Le Sniper'] };
+            }
+        }
         
         // --- RSI Safety Filter ---
-        if (s.USE_RSI_SAFETY_FILTER) {
+        if (tradeSettings.USE_RSI_SAFETY_FILTER) {
             if (pair.rsi_1h === undefined || pair.rsi_1h === null) {
                 log('TRADE', `[RSI FILTER] Skipped trade for ${pair.symbol}. 1h RSI data not available.`);
                 return false;
             }
-            if (pair.rsi_1h >= s.RSI_OVERBOUGHT_THRESHOLD) {
-                log('TRADE', `[RSI FILTER] Skipped trade for ${pair.symbol}. 1h RSI (${pair.rsi_1h.toFixed(2)}) is >= threshold (${s.RSI_OVERBOUGHT_THRESHOLD}).`);
+            if (pair.rsi_1h >= tradeSettings.RSI_OVERBOUGHT_THRESHOLD) {
+                log('TRADE', `[RSI FILTER] Skipped trade for ${pair.symbol}. 1h RSI (${pair.rsi_1h.toFixed(2)}) is >= threshold (${tradeSettings.RSI_OVERBOUGHT_THRESHOLD}).`);
                 return false;
             }
         }
 
         // --- Parabolic Filter Check ---
-        if (s.USE_PARABOLIC_FILTER) {
+        if (tradeSettings.USE_PARABOLIC_FILTER) {
             const klines1m = realtimeAnalyzer.klineData.get(pair.symbol)?.get('1m');
-            if (klines1m && klines1m.length >= s.PARABOLIC_FILTER_PERIOD_MINUTES) {
-                const checkPeriodKlines = klines1m.slice(-s.PARABOLIC_FILTER_PERIOD_MINUTES);
+            if (klines1m && klines1m.length >= tradeSettings.PARABOLIC_FILTER_PERIOD_MINUTES) {
+                const checkPeriodKlines = klines1m.slice(-tradeSettings.PARABOLIC_FILTER_PERIOD_MINUTES);
                 const startingPrice = checkPeriodKlines[0].open;
                 const currentPrice = pair.price;
                 const priceIncreasePct = ((currentPrice - startingPrice) / startingPrice) * 100;
 
-                if (priceIncreasePct > s.PARABOLIC_FILTER_THRESHOLD_PCT) {
-                    log('TRADE', `[PARABOLIC FILTER] Skipped trade for ${pair.symbol}. Price increased by ${priceIncreasePct.toFixed(2)}% in the last ${s.PARABOLIC_FILTER_PERIOD_MINUTES} minutes, exceeding threshold of ${s.PARABOLIC_FILTER_THRESHOLD_PCT}%.`);
+                if (priceIncreasePct > tradeSettings.PARABOLIC_FILTER_THRESHOLD_PCT) {
+                    log('TRADE', `[PARABOLIC FILTER] Skipped trade for ${pair.symbol}. Price increased by ${priceIncreasePct.toFixed(2)}% in the last ${tradeSettings.PARABOLIC_FILTER_PERIOD_MINUTES} minutes, exceeding threshold of ${tradeSettings.PARABOLIC_FILTER_THRESHOLD_PCT}%.`);
                     return false; // Abort trade
                 }
             }
@@ -714,8 +762,8 @@ const tradingEngine = {
             return false;
         }
 
-        if (botState.activePositions.length >= s.MAX_OPEN_POSITIONS) {
-            log('TRADE', `Skipping trade for ${pair.symbol}: Max open positions (${s.MAX_OPEN_POSITIONS}) reached.`);
+        if (botState.activePositions.length >= tradeSettings.MAX_OPEN_POSITIONS) {
+            log('TRADE', `Skipping trade for ${pair.symbol}: Max open positions (${tradeSettings.MAX_OPEN_POSITIONS}) reached.`);
             return false;
         }
 
@@ -725,19 +773,19 @@ const tradingEngine = {
         }
 
         const entryPrice = pair.price;
-        let positionSizePct = s.POSITION_SIZE_PCT;
-        if (s.USE_DYNAMIC_POSITION_SIZING && pair.score === 'STRONG BUY') {
-            positionSizePct = s.STRONG_BUY_POSITION_SIZE_PCT;
+        let positionSizePct = tradeSettings.POSITION_SIZE_PCT;
+        if (tradeSettings.USE_DYNAMIC_POSITION_SIZING && pair.score === 'STRONG BUY') {
+            positionSizePct = tradeSettings.STRONG_BUY_POSITION_SIZE_PCT;
         }
 
         const positionSizeUSD = botState.balance * (positionSizePct / 100);
         const quantity = positionSizeUSD / entryPrice;
 
         let stopLoss;
-        if (s.USE_ATR_STOP_LOSS && pair.atr_15m) {
-            stopLoss = entryPrice - (pair.atr_15m * s.ATR_MULTIPLIER);
+        if (tradeSettings.USE_ATR_STOP_LOSS && pair.atr_15m) {
+            stopLoss = entryPrice - (pair.atr_15m * tradeSettings.ATR_MULTIPLIER);
         } else {
-            stopLoss = slPriceReference * (1 - s.STOP_LOSS_PCT / 100);
+            stopLoss = slPriceReference * (1 - tradeSettings.STOP_LOSS_PCT / 100);
         }
 
         const riskPerUnit = entryPrice - stopLoss;
@@ -747,11 +795,11 @@ const tradingEngine = {
         }
         
         // --- DIVISION BY ZERO PROTECTION ---
-        if (!s.USE_ATR_STOP_LOSS && (!s.STOP_LOSS_PCT || s.STOP_LOSS_PCT <= 0)) {
-            log('ERROR', `STOP_LOSS_PCT is zero or invalid (${s.STOP_LOSS_PCT}%) while not using ATR stop loss for ${pair.symbol}. Aborting trade.`);
+        if (!tradeSettings.USE_ATR_STOP_LOSS && (!tradeSettings.STOP_LOSS_PCT || tradeSettings.STOP_LOSS_PCT <= 0)) {
+            log('ERROR', `STOP_LOSS_PCT is zero or invalid (${tradeSettings.STOP_LOSS_PCT}%) while not using ATR stop loss for ${pair.symbol}. Aborting trade.`);
             return false;
         }
-        const riskRewardRatio = s.TAKE_PROFIT_PCT / s.STOP_LOSS_PCT;
+        const riskRewardRatio = tradeSettings.TAKE_PROFIT_PCT / tradeSettings.STOP_LOSS_PCT;
         const takeProfit = entryPrice + (riskPerUnit * riskRewardRatio);
 
         const newTrade = {
@@ -768,7 +816,7 @@ const tradingEngine = {
             entry_time: new Date().toISOString(),
             status: 'PENDING', // Will be FILLED immediately in virtual mode
             entry_snapshot: { ...pair },
-            initial_risk_usd: positionSizeUSD * (s.STOP_LOSS_PCT / 100),
+            initial_risk_usd: positionSizeUSD * (tradeSettings.STOP_LOSS_PCT / 100),
             is_at_breakeven: false,
             partial_tp_hit: false,
             realized_pnl: 0,

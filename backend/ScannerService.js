@@ -126,6 +126,8 @@ export class ScannerService {
             score: 'HOLD', // Default score, will be updated by RealtimeAnalyzer
             score_value: 50, // Default value
             is_in_squeeze_15m: false, // Default value
+            adx_15m: undefined, // Default value
+            atr_pct_15m: undefined, // Default value
         };
 
         this.cache.set(symbol, { timestamp: Date.now(), data: analysisData });

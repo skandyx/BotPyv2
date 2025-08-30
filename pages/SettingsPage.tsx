@@ -113,7 +113,10 @@ const tooltips: Record<string, string> = {
     STRONG_BUY_POSITION_SIZE_PCT: "Le pourcentage de votre solde à utiliser pour un signal 'STRONG BUY' si le dimensionnement dynamique est activé.",
     USE_PARABOLIC_FILTER: "Active un filtre de sécurité pour éviter d'ouvrir des trades sur des mouvements de prix soudains et verticaux (paraboliques), qui sont souvent des pièges de liquidité.",
     PARABOLIC_FILTER_PERIOD_MINUTES: "La période (en minutes) sur laquelle vérifier une hausse de prix parabolique avant d'entrer dans un trade.",
-    PARABOLIC_FILTER_THRESHOLD_PCT: "Le pourcentage maximum d'augmentation de prix autorisé sur la période de vérification. Si le prix a augmenté plus que ce seuil, le trade est ignoré pour éviter d'entrer sur un pic insoutenable."
+    PARABOLIC_FILTER_THRESHOLD_PCT: "Le pourcentage maximum d'augmentation de prix autorisé sur la période de vérification. Si le prix a augmenté plus que ce seuil, le trade est ignoré pour éviter d'entrer sur un pic insoutenable.",
+    USE_DYNAMIC_PROFILE_SELECTOR: "Si activé, le bot choisira automatiquement le meilleur profil (Sniper, Scalpeur, Chasseur) pour chaque trade en fonction des conditions de marché (tendance, volatilité) au moment de l'entrée.",
+    ADX_THRESHOLD_RANGE: "Le seuil ADX (15m) en dessous duquel un marché est considéré comme étant en 'range' (faible tendance), déclenchant le profil 'Scalpeur'.",
+    ATR_PCT_THRESHOLD_VOLATILE: "Le seuil de l'ATR (en % du prix) au-dessus duquel un marché est considéré comme hyper-volatil, déclenchant le profil 'Chasseur de Volatilité'."
 };
 
 const inputClass = "mt-1 block w-full rounded-md border-[#3e4451] bg-[#0c0e12] shadow-sm focus:border-[#f0b90b] focus:ring-[#f0b90b] sm:text-sm text-white";
@@ -137,7 +140,10 @@ const SettingsPage: React.FC = () => {
 
     // Effect to detect the current profile based on settings
     useEffect(() => {
-        if (!settings) return;
+        if (!settings || settings.USE_DYNAMIC_PROFILE_SELECTOR) {
+            setActiveProfile('PERSONNALISE');
+            return;
+        }
 
         const checkProfile = (profile: Partial<BotSettings>): boolean => {
             return Object.keys(profile).every(key => {
@@ -168,7 +174,7 @@ const SettingsPage: React.FC = () => {
 
 
     const handleProfileSelect = (profileName: ProfileName) => {
-        if (!settings) return;
+        if (!settings || settings.USE_DYNAMIC_PROFILE_SELECTOR) return;
         const profileSettings = settingProfiles[profileName];
         setSettings({ ...settings, ...profileSettings });
         setActiveProfile(profileName);
@@ -335,29 +341,46 @@ const SettingsPage: React.FC = () => {
              {/* Profile Selector */}
             <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-6 shadow-lg">
                 <h3 className="text-lg font-semibold text-white mb-1">Profil de Comportement Adaptatif</h3>
-                <p className="text-sm text-gray-400 mb-4">Sélectionnez un profil pour adapter la stratégie du bot aux conditions actuelles du marché. Tout changement manuel vous fera passer au profil "Personnalisé".</p>
-                <div className="isolate inline-flex rounded-md shadow-sm">
-                    {(['Le Sniper', 'Le Scalpeur', 'Le Chasseur de Volatilité'] as ProfileName[]).map((profile, idx) => (
-                        <button
-                            key={profile}
-                            type="button"
-                            onClick={() => handleProfileSelect(profile)}
-                            className={`relative inline-flex items-center px-4 py-2 text-sm font-semibold ring-1 ring-inset ring-[#3e4451] focus:z-10 transition-colors group
-                                ${activeProfile === profile ? 'bg-[#f0b90b] text-black' : 'bg-[#14181f] text-gray-300 hover:bg-[#2b2f38]'}
-                                ${idx === 0 ? 'rounded-l-md' : ''}
-                                ${idx === 2 ? 'rounded-r-md' : '-ml-px'}
-                            `}
-                        >
-                            {profile}
-                             <div className="absolute bottom-full mb-2 w-64 rounded-lg bg-gray-900 border border-gray-700 p-3 text-xs text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none z-10 shadow-lg"
-                                   style={{ transform: 'translateX(-50%)', left: '50%' }}>
-                                {profileTooltips[profile]}
-                                <div className="absolute left-1/2 top-full h-2 w-2 -translate-x-1/2 bg-gray-900 border-b border-r border-gray-700" style={{ transform: 'translateX(-50%) rotate(45deg)' }}></div>
-                              </div>
-                        </button>
-                    ))}
+                <p className="text-sm text-gray-400 mb-4">Activez le sélecteur dynamique pour laisser le bot choisir la meilleure tactique, ou désactivez-le pour sélectionner manuellement un profil.</p>
+                <div className="flex items-center space-x-4 mb-4 bg-[#0c0e12]/30 p-3 rounded-lg">
+                    <ToggleSwitch
+                        checked={settings.USE_DYNAMIC_PROFILE_SELECTOR}
+                        onChange={(checked) => handleChange('USE_DYNAMIC_PROFILE_SELECTOR', checked)}
+                        leftLabel="AUTO"
+                        rightLabel="MANUEL"
+                    />
+                    <label className="flex items-center text-sm font-medium text-gray-300">
+                        Sélecteur de Profil Dynamique
+                        <Tooltip text={tooltips.USE_DYNAMIC_PROFILE_SELECTOR} />
+                    </label>
                 </div>
-                 {activeProfile === 'PERSONNALISE' && <span className="ml-4 text-sm font-semibold text-sky-400">-- Profil Personnalisé Actif --</span>}
+                <div className={`transition-opacity ${settings.USE_DYNAMIC_PROFILE_SELECTOR ? 'opacity-50' : ''}`}>
+                    <div className="isolate inline-flex rounded-md shadow-sm">
+                        {(['Le Sniper', 'Le Scalpeur', 'Le Chasseur de Volatilité'] as ProfileName[]).map((profile, idx) => (
+                            <button
+                                key={profile}
+                                type="button"
+                                onClick={() => handleProfileSelect(profile)}
+                                disabled={settings.USE_DYNAMIC_PROFILE_SELECTOR}
+                                className={`relative inline-flex items-center px-4 py-2 text-sm font-semibold ring-1 ring-inset ring-[#3e4451] focus:z-10 transition-colors group
+                                    ${activeProfile === profile && !settings.USE_DYNAMIC_PROFILE_SELECTOR ? 'bg-[#f0b90b] text-black' : 'bg-[#14181f] text-gray-300 hover:bg-[#2b2f38]'}
+                                    ${idx === 0 ? 'rounded-l-md' : ''}
+                                    ${idx === 2 ? 'rounded-r-md' : '-ml-px'}
+                                    ${settings.USE_DYNAMIC_PROFILE_SELECTOR ? 'cursor-not-allowed' : ''}
+                                `}
+                            >
+                                {profile}
+                                <div className="absolute bottom-full mb-2 w-64 rounded-lg bg-gray-900 border border-gray-700 p-3 text-xs text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none z-10 shadow-lg"
+                                    style={{ transform: 'translateX(-50%)', left: '50%' }}>
+                                    {profileTooltips[profile]}
+                                    <div className="absolute left-1/2 top-full h-2 w-2 -translate-x-1/2 bg-gray-900 border-b border-r border-gray-700" style={{ transform: 'translateX(-50%) rotate(45deg)' }}></div>
+                                </div>
+                            </button>
+                        ))}
+                    </div>
+                    {activeProfile === 'PERSONNALISE' && !settings.USE_DYNAMIC_PROFILE_SELECTOR && <span className="ml-4 text-sm font-semibold text-sky-400">-- Profil Personnalisé Actif --</span>}
+                    {settings.USE_DYNAMIC_PROFILE_SELECTOR && <span className="ml-4 text-sm font-semibold text-green-400">-- Le bot choisit la meilleure tactique --</span>}
+                </div>
             </div>
 
             {/* Main Settings Grid */}
@@ -401,6 +424,15 @@ const SettingsPage: React.FC = () => {
                                  <InputField id="PARABOLIC_FILTER_PERIOD_MINUTES" label="Période de Vérif. (min)" />
                                  <InputField id="PARABOLIC_FILTER_THRESHOLD_PCT" label="Seuil de Hausse (%)" step="0.1" />
                             </div>
+                        </div>
+                    </div>
+
+                    {/* Dynamic Profile Thresholds */}
+                    <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-6 shadow-lg">
+                        <h3 className="text-lg font-semibold text-white mb-4">Seuils du Profil Dynamique</h3>
+                        <div className={`space-y-4 transition-opacity ${settings.USE_DYNAMIC_PROFILE_SELECTOR ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                             <InputField id="ADX_THRESHOLD_RANGE" label="Seuil ADX (Marché en Range)" />
+                             <InputField id="ATR_PCT_THRESHOLD_VOLATILE" label="Seuil ATR % (Marché Volatil)" step="0.1" />
                         </div>
                     </div>
                 </div>

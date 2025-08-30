@@ -79,6 +79,14 @@ PARABOLIC_FILTER_PERIOD_MINUTES=5
 # Le pourcentage de hausse maximum autorisé sur la période de vérification.
 PARABOLIC_FILTER_THRESHOLD_PCT=3.0
 
+# --- ADAPTIVE BEHAVIOR ---
+# Activer le sélecteur de profil dynamique pour que le bot choisisse la meilleure tactique. (true/false)
+USE_DYNAMIC_PROFILE_SELECTOR=false
+# Le seuil ADX (15m) en dessous duquel le marché est considéré en "range" (profil Scalpeur).
+ADX_THRESHOLD_RANGE=20
+# Le seuil ATR (en % du prix) au-dessus duquel le marché est considéré volatil (profil Chasseur).
+ATR_PCT_THRESHOLD_VOLATILE=5
+
 # --- API CREDENTIALS ---
 BINANCE_API_KEY=votre_cle_api_binance
 BINANCE_SECRET_KEY=votre_cle_secrete_binance

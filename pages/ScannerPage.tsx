@@ -188,12 +188,25 @@ const ScannerPage: React.FC = () => {
       return 'text-gray-300'; // Neutral/Wide
   };
 
+  const getAdxColorClass = (adx?: number): string => {
+    if (adx === undefined || !settings) return 'text-gray-500';
+    if (adx < settings.ADX_THRESHOLD_RANGE) return 'text-sky-400'; // Ranging
+    if (adx > 40) return 'text-green-400 font-bold'; // Strong trend
+    return 'text-gray-300'; // Developing trend
+  };
+
+  const getAtrPctColorClass = (atrPct?: number): string => {
+      if (atrPct === undefined || !settings) return 'text-gray-500';
+      if (atrPct > settings.ATR_PCT_THRESHOLD_VOLATILE) return 'text-red-400 font-bold'; // Volatile
+      return 'text-gray-300'; // Normal volatility
+  };
+
 
   if (!settings) {
     return <div className="flex justify-center items-center h-64"><Spinner /></div>;
   }
   
-  const totalColumnCount = 12;
+  const totalColumnCount = 14;
 
   return (
     <div className="space-y-6">
@@ -245,8 +258,8 @@ const ScannerPage: React.FC = () => {
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="price_above_ema50_4h">Tendance 4h</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="rsi_1h">RSI 1h</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="volume">Volume 24h</SortableHeader>
-                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="vol_spike" className="text-center">Vol Spike 15m</SortableHeader>
-                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="volume_20_period_avg_15m">Vol Moy 15m</SortableHeader>
+                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="adx_15m">ADX 15m</SortableHeader>
+                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="atr_pct_15m">ATR % 15m</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="bollinger_bands_15m">Largeur BB 15m</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="atr_15m">ATR 15m</SortableHeader>
                     </tr>
@@ -292,17 +305,11 @@ const ScannerPage: React.FC = () => {
                                         {pair.rsi_1h?.toFixed(1) || 'N/A'}
                                     </td>
                                     <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-400">${(pair.volume / 1_000_000).toFixed(2)}M</td>
-                                    <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold text-center">
-                                        {pair.conditions?.volume === true ? (
-                                            <span className="text-green-400" title="Volume actuel > 2x la moyenne">▲ SPIKE</span>
-                                        ) : pair.conditions?.volume === false ? (
-                                            <span className="text-red-400" title="Volume actuel < 2x la moyenne">─ NORMAL</span>
-                                        ) : (
-                                            <span className="text-gray-500">-</span>
-                                        )}
+                                     <td className={`px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm ${getAdxColorClass(pair.adx_15m)}`} title="Force de la Tendance ( < 20 = Range, > 40 = Fort)">
+                                        {pair.adx_15m?.toFixed(1) || 'N/A'}
                                     </td>
-                                    <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-400">
-                                        {formatVolume(pair.volume_20_period_avg_15m)}
+                                    <td className={`px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm ${getAtrPctColorClass(pair.atr_pct_15m)}`} title="Volatilité en % du Prix">
+                                        {pair.atr_pct_15m?.toFixed(2) || 'N/A'}%
                                     </td>
                                     <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm">
                                         <div className="flex items-center space-x-2">
