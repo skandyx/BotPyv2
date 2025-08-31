@@ -78,25 +78,31 @@ const AUTH_FILE_PATH = path.join(DATA_DIR, 'auth.json');
 const ensureDataDir = async () => { try { await fs.access(DATA_DIR); } catch { await fs.mkdir(DATA_DIR); } };
 
 // --- Auth ---
-const hashPassword = (p) => new Promise((res, rej) => {
-    const salt = crypto.randomBytes(16); // Use buffer directly
-    crypto.scrypt(p, salt, 64, (err, key) => {
-        if (err) return rej(err);
-        res(salt.toString('hex') + ":" + key.toString('hex')); // Store salt as hex
+const hashPassword = (password) => new Promise((resolve, reject) => {
+    const salt = crypto.randomBytes(16);
+    crypto.scrypt(password, salt, 64, (err, derivedKey) => {
+        if (err) reject(err);
+        resolve(salt.toString('hex') + ":" + derivedKey.toString('hex'));
     });
 });
 
-const verifyPassword = (p, hash) => new Promise((res, rej) => {
-    const [saltHex, key] = hash.split(':');
-    if (!saltHex || !key) return rej(new Error('Invalid hash format.'));
-    // FIX: The salt is a hex string, convert it back to a Buffer before using it in scrypt.
+const verifyPassword = (password, hash) => new Promise((resolve, reject) => {
+    const [saltHex, keyHex] = hash.split(':');
+    if (!saltHex || !keyHex) {
+        return resolve(false); // Invalid format
+    }
     const salt = Buffer.from(saltHex, 'hex');
-    crypto.scrypt(p, salt, 64, (err, dKey) => {
-        if (err) return rej(err);
+    crypto.scrypt(password, salt, 64, (err, derivedKey) => {
+        if (err) return reject(err);
         try {
-            res(crypto.timingSafeEqual(Buffer.from(key, 'hex'), dKey));
-        } catch {
-            res(false);
+            const keyBuffer = Buffer.from(keyHex, 'hex');
+            if (keyBuffer.length !== derivedKey.length) {
+                return resolve(false);
+            }
+            resolve(crypto.timingSafeEqual(keyBuffer, derivedKey));
+        } catch (e) {
+            // Catches errors if keyHex is not valid hex
+            resolve(false);
         }
     });
 });
@@ -116,11 +122,12 @@ const loadData = async () => {
             SCANNER_DISCOVERY_INTERVAL_SECONDS: 3600, EXCLUDED_PAIRS: "USDCUSDT,FDUSDUSDT",
             AGGRESSIVE_ENTRY_PROFILES: "Le Chasseur de Volatilité", BINANCE_API_KEY: "", BINANCE_SECRET_KEY: "",
             USE_DYNAMIC_PROFILE_SELECTOR: true, ADX_THRESHOLD_RANGE: 20, ATR_PCT_THRESHOLD_VOLATILE: 5,
-            RSI_OVERBOUGHT_THRESHOLD: 70,
+            RSI_OVERBOUGHT_THRESHOLD: 75,
             USE_CIRCUIT_BREAKER: true, CIRCUIT_BREAKER_SYMBOL: "BTCUSDT", CIRCUIT_BREAKER_PERIOD_MINUTES: 5,
             CIRCUIT_BREAKER_ALERT_THRESHOLD_PCT: -1.5,
             CIRCUIT_BREAKER_BLOCK_THRESHOLD_PCT: -2.5,
             CIRCUIT_BREAKER_ALERT_POSITION_SIZE_MULTIPLIER: 0.5, CIRCUIT_BREAKER_COOLDOWN_HOURS: 1,
+            SLIPPAGE_PCT: 0.05
         };
         await saveData('settings');
     }
@@ -137,17 +144,34 @@ const loadData = async () => {
         botState.balance = botState.settings.INITIAL_VIRTUAL_BALANCE;
         await saveData('state');
     }
+
+    // --- Self-Healing Auth Logic ---
+    const pwFromEnv = process.env.APP_PASSWORD;
+    if (!pwFromEnv) {
+        log('ERROR', 'CRITICAL: APP_PASSWORD is not set in your .env file. Please configure it.');
+        process.exit(1);
+    }
+
     try {
-        const auth = JSON.parse(await fs.readFile(AUTH_FILE_PATH, 'utf-8'));
-        if (auth.passwordHash) botState.passwordHash = auth.passwordHash;
-        else throw new Error("Invalid auth file format");
-    } catch {
-        log("WARN", "auth.json not found. Initializing from .env.");
-        const pw = process.env.APP_PASSWORD;
-        if (!pw) { log('ERROR', 'CRITICAL: APP_PASSWORD is not set.'); process.exit(1); }
-        botState.passwordHash = await hashPassword(pw);
+        const authData = JSON.parse(await fs.readFile(AUTH_FILE_PATH, 'utf-8'));
+        if (!authData.passwordHash) throw new Error("Invalid auth file format.");
+
+        const isHashValid = await verifyPassword(pwFromEnv, authData.passwordHash).catch(() => false);
+
+        if (isHashValid) {
+            log('INFO', 'Loaded existing password hash from auth.json.');
+            botState.passwordHash = authData.passwordHash;
+        } else {
+            log('WARN', 'Password in .env has changed or auth.json is corrupt. Regenerating password hash.');
+            botState.passwordHash = await hashPassword(pwFromEnv);
+            await fs.writeFile(AUTH_FILE_PATH, JSON.stringify({ passwordHash: botState.passwordHash }, null, 2));
+        }
+    } catch (error) {
+        log("WARN", "auth.json not found or invalid. Initializing from .env.");
+        botState.passwordHash = await hashPassword(pwFromEnv);
         await fs.writeFile(AUTH_FILE_PATH, JSON.stringify({ passwordHash: botState.passwordHash }, null, 2));
     }
+    
     scanner.updateSettings(botState.settings);
     realtimeAnalyzer.updateSettings(botState.settings);
 };
@@ -376,7 +400,7 @@ const tradingEngine = {
             
             const s = botState.settings;
             if (s.USE_TRAILING_STOP_LOSS) {
-                if (s.USE_ADAPTIVE_TRAILING_STOP && !pos.trailing_stop_tightened && price >= pos.entry_price + pos.initial_risk_per_unit) {
+                if (s.USE_ADAPTIVE_TRAILING_STOP && !pos.trailing_stop_tightened && pos.initial_risk_per_unit && price >= pos.entry_price + pos.initial_risk_per_unit) {
                     pos.current_trailing_stop_atr_multiplier = s.ADAPTIVE_TRAILING_STOP_TIGHTEN_MULTIPLIER;
                     pos.trailing_stop_tightened = true;
                     log('TRADE', `[${pos.symbol}] Adaptive SL triggered. Multiplier tightened to ${pos.current_trailing_stop_atr_multiplier}x ATR.`);
@@ -452,7 +476,7 @@ app.post('/api/login', async (req, res) => {
             req.session.isAuthenticated = true;
             res.json({ success: true });
         } else {
-            res.status(401).json({ success: false, message: 'Invalid credentials.' });
+            res.status(401).json({ success: false, message: 'Invalid password.' });
         }
     } catch (e) { res.status(500).json({ success: false, message: 'Internal error.' }); }
 });
@@ -497,8 +521,20 @@ app.post('/api/clear-data', requireAuth, async (req, res) => {
     await saveData('state'); broadcast({ type: 'POSITIONS_UPDATED' }); res.json({ success: true });
 });
 app.get('/api/bot/status', requireAuth, (req, res) => res.json({ isRunning: botState.isRunning, circuitBreakerStatus: botState.circuitBreakerStatus }));
-app.post('/api/bot/start', requireAuth, async (req, res) => { botState.isRunning = true; await saveData('state'); res.json({ success: true }); });
-app.post('/api/bot/stop', requireAuth, async (req, res) => { botState.isRunning = false; await saveData('state'); res.json({ success: true }); });
+app.post('/api/bot/start', requireAuth, async (req, res) => { botState.isRunning = true; await saveData('state'); broadcast({ type: 'BOT_STATUS_UPDATE', payload: { isRunning: true, circuitBreakerStatus: botState.circuitBreakerStatus }}); res.json({ success: true }); });
+app.post('/api/bot/stop', requireAuth, async (req, res) => { botState.isRunning = false; await saveData('state'); broadcast({ type: 'BOT_STATUS_UPDATE', payload: { isRunning: false, circuitBreakerStatus: botState.circuitBreakerStatus }}); res.json({ success: true }); });
+app.get('/api/mode', requireAuth, (req, res) => res.json({ mode: botState.tradingMode }));
+app.post('/api/mode', requireAuth, async (req, res) => {
+    const { mode } = req.body;
+    if (['VIRTUAL', 'REAL_PAPER', 'REAL_LIVE'].includes(mode)) {
+        botState.tradingMode = mode;
+        await saveData('state');
+        log('INFO', `Trading mode switched to ${mode}`);
+        res.json({ success: true, mode: botState.tradingMode });
+    } else {
+        res.status(400).json({ success: false, message: 'Invalid mode' });
+    }
+});
 
 // --- Serve Frontend ---
 const __dirname = path.resolve();
