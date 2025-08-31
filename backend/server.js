@@ -79,17 +79,28 @@ const ensureDataDir = async () => { try { await fs.access(DATA_DIR); } catch { a
 
 // --- Auth ---
 const hashPassword = (p) => new Promise((res, rej) => {
-    const salt = crypto.randomBytes(16).toString('hex');
-    crypto.scrypt(p, salt, 64, (err, key) => err ? rej(err) : res(salt + ":" + key.toString('hex')));
-});
-const verifyPassword = (p, hash) => new Promise((res, rej) => {
-    const [salt, key] = hash.split(':');
-    if (!salt || !key) return rej(new Error('Invalid hash format.'));
-    crypto.scrypt(p, salt, 64, (err, dKey) => {
+    const salt = crypto.randomBytes(16); // Use buffer directly
+    crypto.scrypt(p, salt, 64, (err, key) => {
         if (err) return rej(err);
-        try { res(crypto.timingSafeEqual(Buffer.from(key, 'hex'), dKey)); } catch { res(false); }
+        res(salt.toString('hex') + ":" + key.toString('hex')); // Store salt as hex
     });
 });
+
+const verifyPassword = (p, hash) => new Promise((res, rej) => {
+    const [saltHex, key] = hash.split(':');
+    if (!saltHex || !key) return rej(new Error('Invalid hash format.'));
+    // FIX: The salt is a hex string, convert it back to a Buffer before using it in scrypt.
+    const salt = Buffer.from(saltHex, 'hex');
+    crypto.scrypt(p, salt, 64, (err, dKey) => {
+        if (err) return rej(err);
+        try {
+            res(crypto.timingSafeEqual(Buffer.from(key, 'hex'), dKey));
+        } catch {
+            res(false);
+        }
+    });
+});
+
 
 const loadData = async () => {
     await ensureDataDir();
