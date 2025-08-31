@@ -170,12 +170,12 @@ const Header: React.FC = () => {
                 </button>
             </div>
         </div>
+         {isCircuitBreakerActive && (
+            <div className="bg-red-600 text-white text-center py-2 font-bold text-sm z-50 animate-pulse">
+              DISJONCTEUR ACTIF : Le trading est suspendu en raison de conditions de marché extrêmes.
+            </div>
+          )}
       </header>
-       {isCircuitBreakerActive && (
-        <div className="fixed top-16 left-0 right-0 bg-red-600 text-white text-center py-2 font-bold text-sm z-50 animate-pulse">
-          DISJONCTEUR ACTIF : Le trading est suspendu en raison de conditions de marché extrêmes.
-        </div>
-      )}
       <Modal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
