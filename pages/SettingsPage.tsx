@@ -13,7 +13,7 @@ type ActiveProfile = ProfileName | 'PERSONNALISE';
 
 const profileTooltips: Record<ProfileName, string> = {
     'Le Sniper': "PRUDENT : Vise la qualité maximale. Filtres très stricts et gestion 'Profit Runner' pour laisser courir les gagnants au maximum.",
-    'Le Scalpeur': "ÉQUILIBRÉ : Optimisé pour des gains rapides et constants. Take profit très serré, idéal pour les marchés en range.",
+    'Le Scalpeur': "ÉQUILIBRÉ : Optimisé pour des gains rapides et constants. Ratio Risque/Récompense faible, idéal pour les marchés en range.",
     'Le Chasseur de Volatilité': "AGRESSIF : Conçu pour les marchés explosifs. Filtres de sécurité désactivés et gestion du risque adaptée à une forte volatilité."
 };
 
@@ -37,8 +37,8 @@ const settingProfiles: Record<ProfileName, Partial<BotSettings>> = {
         ADJUST_BREAKEVEN_FOR_FEES: true,
         TRANSACTION_FEE_PCT: 0.1,
         USE_TRAILING_STOP_LOSS: true,
-        TRAILING_STOP_LOSS_PCT: 2.5, // Wide trailing stop
-        TAKE_PROFIT_PCT: 15.0, // High target, rely on trailing
+        TRAILING_STOP_LOSS_PCT: 2.5,
+        RISK_REWARD_RATIO: 5.0, // High R/R, rely on trailing
     },
     'Le Scalpeur': { // EQUILIBRE
         POSITION_SIZE_PCT: 3.0,
@@ -51,7 +51,7 @@ const settingProfiles: Record<ProfileName, Partial<BotSettings>> = {
         PARABOLIC_FILTER_THRESHOLD_PCT: 3.5,
         USE_ATR_STOP_LOSS: false,
         STOP_LOSS_PCT: 2.0,
-        TAKE_PROFIT_PCT: 1.5, // Very tight TP
+        RISK_REWARD_RATIO: 0.75, // Tight R/R for scalping
         USE_PARTIAL_TAKE_PROFIT: false,
         USE_AUTO_BREAKEVEN: false,
         ADJUST_BREAKEVEN_FOR_FEES: false,
@@ -67,7 +67,7 @@ const settingProfiles: Record<ProfileName, Partial<BotSettings>> = {
         USE_PARABOLIC_FILTER: false, // Filters off
         USE_ATR_STOP_LOSS: true, // Wider ATR SL to survive volatility
         ATR_MULTIPLIER: 2.0,
-        TAKE_PROFIT_PCT: 10.0,
+        RISK_REWARD_RATIO: 3.0,
         USE_PARTIAL_TAKE_PROFIT: false,
         USE_AUTO_BREAKEVEN: true,
         BREAKEVEN_TRIGGER_PCT: 2.0,
@@ -84,7 +84,7 @@ const tooltips: Record<string, string> = {
     INITIAL_VIRTUAL_BALANCE: "Le capital de départ pour votre compte de trading virtuel. Ce montant est appliqué lorsque vous effacez toutes les données de trading.",
     MAX_OPEN_POSITIONS: "Le nombre maximum de trades que le bot peut avoir ouverts en même temps. Aide à contrôler l'exposition globale au risque.",
     POSITION_SIZE_PCT: "Le pourcentage de votre solde total à utiliser pour chaque nouveau trade. (ex: 2% sur un solde de 10 000 $ se traduira par des positions de 200 $).",
-    TAKE_PROFIT_PCT: "Le pourcentage de profit auquel un trade sera automatiquement clôturé. C'est l'objectif initial si le Trailing Stop Loss est désactivé.",
+    RISK_REWARD_RATIO: "Le multiplicateur de votre risque pour définir l'objectif de profit. Un ratio de 3.0 signifie que le Take Profit sera fixé à 3 fois la distance du Stop Loss.",
     STOP_LOSS_PCT: "Le pourcentage de perte auquel un trade sera automatiquement clôturé pour éviter de nouvelles pertes. C'est le risque maximum par trade.",
     USE_TRAILING_STOP_LOSS: "Active un stop loss dynamique qui monte pour sécuriser les profits à mesure que le prix augmente, mais ne descend jamais.",
     TRAILING_STOP_LOSS_PCT: "Le pourcentage en dessous du prix le plus élevé auquel le trailing stop loss sera fixé. Une valeur plus petite est plus serrée, une valeur plus grande est plus lâche.",
@@ -395,7 +395,7 @@ const SettingsPage: React.FC = () => {
                              <InputField id="MAX_OPEN_POSITIONS" label="Positions Ouvertes Max" />
                              <InputField id="POSITION_SIZE_PCT" label="Taille de Position (%)" step="0.1" children={<span className="text-gray-400 text-sm">%</span>}/>
                              <InputField id="STOP_LOSS_PCT" label="Stop Loss (%)" step="0.1" children={<span className="text-gray-400 text-sm">%</span>}/>
-                             <InputField id="TAKE_PROFIT_PCT" label="Take Profit (%)" step="0.1" children={<span className="text-gray-400 text-sm">%</span>}/>
+                             <InputField id="RISK_REWARD_RATIO" label="Ratio Risque/Récompense" step="0.1" children={<span className="text-gray-400 text-sm">:1</span>}/>
                              <InputField id="INITIAL_VIRTUAL_BALANCE" label="Solde Virtuel Initial" step="100" children={<span className="text-gray-400 text-sm">$</span>}/>
                              <InputField id="SLIPPAGE_PCT" label="Slippage Simulé (%)" step="0.01" children={<span className="text-gray-400 text-sm">%</span>}/>
                         </div>

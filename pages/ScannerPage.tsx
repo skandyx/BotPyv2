@@ -76,6 +76,7 @@ const ConditionDots: React.FC<{ conditions?: StrategyConditions }> = ({ conditio
         breakout: 'Cassure 15m (Clôture > BB Sup.)',
         volume: 'Volume 15m (Volume > 2x Moyenne)',
         safety: 'Sécurité 1h (RSI < Seuil)',
+        structure: 'Confirmation Structurelle (Prix > Plus Haut 15m Précédent)',
     };
 
     return (
@@ -85,6 +86,7 @@ const ConditionDots: React.FC<{ conditions?: StrategyConditions }> = ({ conditio
             <Dot active={conditions?.breakout ?? false} tooltip={conditionTooltips.breakout} />
             <Dot active={conditions?.volume ?? false} tooltip={conditionTooltips.volume} />
             <Dot active={conditions?.safety ?? false} tooltip={conditionTooltips.safety} />
+            <Dot active={conditions?.structure ?? false} tooltip={conditionTooltips.structure} />
         </div>
     );
 };
@@ -159,14 +161,22 @@ const ScannerPage: React.FC = () => {
   
     const getScoreValueBadgeClass = (scoreValue: number | undefined) => {
         if (scoreValue === undefined) return 'bg-gray-700 text-gray-200';
-        if (scoreValue >= 99) return 'bg-green-600 text-green-100'; // 5/5
-        if (scoreValue >= 80) return 'bg-sky-600 text-sky-100'; // 4/5
-        if (scoreValue >= 60) return 'bg-yellow-600 text-yellow-100'; // 3/5
-        return 'bg-gray-700 text-gray-200'; // 0-2/5
+        if (scoreValue >= 99) return 'bg-green-600 text-green-100'; // 6/6
+        if (scoreValue >= 80) return 'bg-sky-600 text-sky-100'; // 5/6
+        if (scoreValue >= 60) return 'bg-yellow-600 text-yellow-100'; // 4/6
+        return 'bg-gray-700 text-gray-200';
     };
 
   
   // --- COLOR CODING HELPERS ---
+    const getTrendScoreColorClass = (score?: number): string => {
+        if (score === undefined || score === null) return 'text-gray-500';
+        if (score >= 90) return 'text-green-400 font-bold';
+        if (score >= 75) return 'text-emerald-400';
+        if (score >= 50) return 'text-yellow-400';
+        return 'text-gray-500';
+    };
+
   const getTrendColorClass = (isAbove?: boolean): string => {
     if (isAbove === true) return 'text-green-400'; // Favorable
     if (isAbove === false) return 'text-red-400'; // Unfavorable
@@ -206,7 +216,7 @@ const ScannerPage: React.FC = () => {
     return <div className="flex justify-center items-center h-64"><Spinner /></div>;
   }
   
-  const totalColumnCount = 12;
+  const totalColumnCount = 13;
 
   return (
     <div className="space-y-6">
@@ -253,9 +263,9 @@ const ScannerPage: React.FC = () => {
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="is_on_hotlist" className="text-center">Hotlist</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="symbol">Symbole</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="price">Prix</SortableHeader>
-                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="score_value">Score</SortableHeader>
+                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="score_value">Score Global</SortableHeader>
                         <th scope="col" className="px-2 sm:px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Conditions</th>
-                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="price_above_ema50_4h">Tendance 4h</SortableHeader>
+                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="trend_score">Score Tendance</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="rsi_1h">RSI 1h</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="volume">Volume 24h</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="adx_15m">ADX 15m</SortableHeader>
@@ -289,7 +299,7 @@ const ScannerPage: React.FC = () => {
                                                 {pair.score_value?.toFixed(0) ?? 'N/A'}
                                             </span>
                                             <span className="font-mono text-gray-400 text-xs">
-                                                ({pair.conditions_met_count ?? 0}/5)
+                                                ({pair.conditions_met_count ?? 0}/6)
                                             </span>
                                         </div>
                                     </td>
@@ -297,8 +307,8 @@ const ScannerPage: React.FC = () => {
                                         <ConditionDots conditions={pair.conditions} />
                                     </td>
                                     <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">
-                                        <span className={getTrendColorClass(pair.price_above_ema50_4h)}>
-                                            {pair.price_above_ema50_4h === true ? '▲ HAUSSIER' : (pair.price_above_ema50_4h === false ? '▼ BAISSIER' : '-')}
+                                        <span className={getTrendScoreColorClass(pair.trend_score)} title={`Force de la tendance 4h : ${pair.trend_score?.toFixed(0)}/100`}>
+                                            {pair.trend_score?.toFixed(0) ?? 'N/A'}
                                         </span>
                                     </td>
                                     <td className={`px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm ${getRsiColorClass(pair.rsi_1h)}`}>

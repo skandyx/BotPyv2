@@ -12,10 +12,12 @@ export interface PriceUpdate {
 
 type StatusChangeCallback = (status: WebSocketStatus) => void;
 type DataRefreshCallback = () => void;
+type CircuitBreakerCallback = (payload: { active: boolean }) => void;
 
 let socket: WebSocket | null = null;
 let statusCallback: StatusChangeCallback | null = null;
 let dataRefreshCallback: DataRefreshCallback | null = null;
+let circuitBreakerCallback: CircuitBreakerCallback | null = null;
 let reconnectTimeout: number | null = null;
 let isManualDisconnect = false;
 
@@ -65,6 +67,10 @@ const connect = () => {
                 case 'POSITIONS_UPDATED':
                     logService.log('TRADE', 'Positions updated by backend, triggering data refresh...');
                     dataRefreshCallback?.();
+                    break;
+                case 'CIRCUIT_BREAKER_UPDATE':
+                    logService.log('WARN', `Circuit breaker status updated: ${JSON.stringify(message.payload)}`);
+                    circuitBreakerCallback?.(message.payload);
                     break;
                 case 'BOT_STATUS_UPDATE':
                     logService.log('INFO', `Bot running state is now: ${message.payload.isRunning}`);
@@ -116,5 +122,8 @@ export const websocketService = {
     },
     onDataRefresh: (callback: DataRefreshCallback | null) => {
         dataRefreshCallback = callback;
+    },
+    onCircuitBreakerUpdate: (callback: CircuitBreakerCallback | null) => {
+        circuitBreakerCallback = callback;
     }
 };

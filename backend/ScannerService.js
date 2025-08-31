@@ -99,14 +99,21 @@ export class ScannerService {
         const lastClose4h = closes4h[closes4h.length - 1];
         const price_above_ema50_4h = lastClose4h > lastEma50_4h;
         
+        // Nuanced Trend Score Calculation
+        let trend_score = 0;
+        if (price_above_ema50_4h) {
+            const distance_pct = ((lastClose4h - lastEma50_4h) / lastEma50_4h) * 100;
+            // Score from 50 to 100. 5% distance is a perfect score.
+            trend_score = 50 + (distance_pct / 5.0) * 50.0;
+            trend_score = Math.min(100, Math.max(50, trend_score));
+        }
+        
         // Volume Spike Filter
         const lastVolume4h = volumes4h[volumes4h.length - 1];
         const previousVolumes4h = volumes4h.slice(0, -1);
         const volumeSma20 = SMA.calculate({ period: 20, values: previousVolumes4h }).pop();
         const volume_spike_4h = lastVolume4h > (volumeSma20 * 2);
         
-        // The bot will now analyze ALL pairs but will log if they fail a filter.
-        // The trading logic will still prevent trades on unqualified pairs.
         if (settings.USE_MARKET_REGIME_FILTER && !price_above_ema50_4h) {
              this.log('SCANNER', `[${symbol}] Fails 4h trend filter.`);
         }
@@ -120,6 +127,7 @@ export class ScannerService {
 
         const analysisData = {
             price_above_ema50_4h,
+            trend_score,
             volume_spike_4h,
             rsi_1h,
             priceDirection: 'neutral',

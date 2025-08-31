@@ -15,7 +15,7 @@ import { useSidebar } from '../../contexts/SidebarContext';
 const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { setConnectionStatus } = useWebSocket();
   const { isAuthenticated } = useAuth();
-  const { settingsActivityCounter, refreshData, setSettings } = useAppContext();
+  const { settingsActivityCounter, refreshData, setSettings, setIsCircuitBreakerActive } = useAppContext();
   const { isCollapsed, isMobileOpen, setMobileOpen } = useSidebar();
 
   useEffect(() => {
@@ -23,6 +23,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         logService.log('INFO', "User is authenticated, initializing data and WebSocket...");
         websocketService.onStatusChange(setConnectionStatus);
         websocketService.onDataRefresh(refreshData);
+        websocketService.onCircuitBreakerUpdate((payload) => setIsCircuitBreakerActive(payload.active));
         websocketService.connect();
         
         const initializeAndFetchData = async () => {
@@ -51,8 +52,9 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       }
       websocketService.onStatusChange(null);
       websocketService.onDataRefresh(null);
+      websocketService.onCircuitBreakerUpdate(null);
     };
-  }, [isAuthenticated, setConnectionStatus, settingsActivityCounter, refreshData, setSettings]);
+  }, [isAuthenticated, setConnectionStatus, settingsActivityCounter, refreshData, setSettings, setIsCircuitBreakerActive]);
 
   return (
     <div className="flex h-screen bg-[#0c0e12] overflow-hidden">

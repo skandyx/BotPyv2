@@ -9,6 +9,7 @@ import ToggleSwitch from '../common/ToggleSwitch';
 import Modal from '../common/Modal';
 import { TradingMode, WebSocketStatus } from '../../types';
 import { LogoutIcon, ClockIcon, MenuIcon } from '../icons/Icons';
+import { useAppContext } from '../../contexts/AppContext';
 
 const getTitleFromPath = (path: string): string => {
     const name = path.split('/').pop() || 'dashboard';
@@ -35,6 +36,7 @@ const Header: React.FC = () => {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const { setMobileOpen } = useSidebar();
+  const { isCircuitBreakerActive } = useAppContext();
 
 
   useEffect(() => {
@@ -148,7 +150,7 @@ const Header: React.FC = () => {
                 <div ref={dropdownRef} className="relative">
                     <button onClick={() => setIsDropdownOpen(!isDropdownOpen)} className="flex items-center justify-center px-2 sm:px-3 py-1.5 border border-[#3e4451] rounded-md text-sm font-medium text-white hover:bg-[#14181f] transition-colors">
                         {getModeLabel(tradingMode)}
-                        <svg className="hidden sm:block -mr-1 ml-2 h-5 w-5" xmlns="http://www.w.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                        <svg className="hidden sm:block -mr-1 ml-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                             <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
                         </svg>
                     </button>
@@ -169,6 +171,11 @@ const Header: React.FC = () => {
             </div>
         </div>
       </header>
+       {isCircuitBreakerActive && (
+        <div className="fixed top-16 left-0 right-0 bg-red-600 text-white text-center py-2 font-bold text-sm z-50 animate-pulse">
+          DISJONCTEUR ACTIF : Le trading est suspendu en raison de conditions de marché extrêmes.
+        </div>
+      )}
       <Modal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}

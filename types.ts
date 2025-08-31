@@ -54,6 +54,7 @@ export interface StrategyConditions {
     breakout: boolean;
     volume: boolean;
     safety: boolean;
+    structure?: boolean;
 }
 
 export interface ScannedPair {
@@ -75,8 +76,9 @@ export interface ScannedPair {
     // --- Realtime Calculated Fields ---
     score: 'STRONG BUY' | 'BUY' | 'HOLD' | 'COOLDOWN' | 'COMPRESSION' | 'FAKE_BREAKOUT';
     score_value?: number; // Numerical representation of the score
+    trend_score?: number; // Nuanced score of trend strength (0-100)
     conditions?: StrategyConditions;
-    conditions_met_count?: number; // From 0 to 5
+    conditions_met_count?: number; // From 0 to 6
     is_on_hotlist?: boolean; // New: True if conditions are met for 1m precision entry
 }
 
@@ -114,7 +116,7 @@ export interface BotSettings {
     INITIAL_VIRTUAL_BALANCE: number;
     MAX_OPEN_POSITIONS: number;
     POSITION_SIZE_PCT: number;
-    TAKE_PROFIT_PCT: number;
+    RISK_REWARD_RATIO: number;
     STOP_LOSS_PCT: number;
     SLIPPAGE_PCT: number;
     USE_TRAILING_STOP_LOSS: boolean;

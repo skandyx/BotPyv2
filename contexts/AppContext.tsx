@@ -11,6 +11,8 @@ interface AppContextType {
   incrementSettingsActivity: () => void;
   settings: BotSettings | null;
   setSettings: React.Dispatch<React.SetStateAction<BotSettings | null>>;
+  isCircuitBreakerActive: boolean;
+  setIsCircuitBreakerActive: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -19,6 +21,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [tradeActivityCounter, setTradeActivityCounter] = useState(0);
   const [settingsActivityCounter, setSettingsActivityCounter] = useState(0);
   const [settings, setSettings] = useState<BotSettings | null>(null);
+  const [isCircuitBreakerActive, setIsCircuitBreakerActive] = useState(false);
 
   const refreshData = useCallback(async () => {
     logService.log('INFO', 'WebSocket triggered position refresh. Fetching fresh data...');
@@ -36,7 +39,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, []);
 
   return (
-    <AppContext.Provider value={{ tradeActivityCounter, refreshData, settingsActivityCounter, incrementSettingsActivity, settings, setSettings }}>
+    <AppContext.Provider value={{ tradeActivityCounter, refreshData, settingsActivityCounter, incrementSettingsActivity, settings, setSettings, isCircuitBreakerActive, setIsCircuitBreakerActive }}>
       {children}
     </AppContext.Provider>
   );

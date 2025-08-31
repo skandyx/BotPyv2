@@ -172,7 +172,7 @@ const loadData = async () => {
             INITIAL_VIRTUAL_BALANCE: parseFloat(process.env.INITIAL_VIRTUAL_BALANCE) || 10000,
             MAX_OPEN_POSITIONS: parseInt(process.env.MAX_OPEN_POSITIONS, 10) || 5,
             POSITION_SIZE_PCT: parseFloat(process.env.POSITION_SIZE_PCT) || 2.0,
-            TAKE_PROFIT_PCT: parseFloat(process.env.TAKE_PROFIT_PCT) || 4.0,
+            RISK_REWARD_RATIO: parseFloat(process.env.RISK_REWARD_RATIO) || 2.0,
             STOP_LOSS_PCT: parseFloat(process.env.STOP_LOSS_PCT) || 2.0,
             USE_TRAILING_STOP_LOSS: process.env.USE_TRAILING_STOP_LOSS === 'true',
             TRAILING_STOP_LOSS_PCT: parseFloat(process.env.TRAILING_STOP_LOSS_PCT) || 1.5,
@@ -370,6 +370,10 @@ class RealtimeAnalyzer {
         if (cooldownInfo && Date.now() < cooldownInfo.until) {
             finalScore = 'COOLDOWN';
         }
+        
+        const previous15mCandle = klines15m[klines15m.length - 2];
+        const highOfPrevious15m = previous15mCandle.high;
+        const structureConditionMet = pairToUpdate.price > highOfPrevious15m;
 
         const conditions = {
             trend: isTrendOK,
@@ -377,11 +381,12 @@ class RealtimeAnalyzer {
             safety: pairToUpdate.rsi_1h !== undefined && pairToUpdate.rsi_1h < this.settings.RSI_OVERBOUGHT_THRESHOLD,
             breakout: isBreakout,
             volume: volumeConditionMet,
+            structure: structureConditionMet
         };
         const conditionsMetCount = Object.values(conditions).filter(Boolean).length;
         pairToUpdate.conditions = conditions;
         pairToUpdate.conditions_met_count = conditionsMetCount;
-        pairToUpdate.score_value = (conditionsMetCount / 5) * 100;
+        pairToUpdate.score_value = (conditionsMetCount / 6) * 100;
         pairToUpdate.score = finalScore;
 
         if (pairToUpdate.score !== old_score || pairToUpdate.is_on_hotlist !== old_hotlist_status) {
@@ -405,11 +410,18 @@ class RealtimeAnalyzer {
 
         if (lastEma9 === undefined) return;
         
+        const klines15m = this.klineData.get(symbol)?.get('15m');
+        if (!klines15m || klines15m.length < 2) return;
+        const previous15mCandle = klines15m[klines15m.length - 2];
+        const highOfPrevious15m = previous15mCandle.high;
+
         const triggerCandle = klines1m[klines1m.length - 1];
-        const isEntrySignal = triggerCandle.close > lastEma9 && triggerCandle.volume > avgVolume * 1.5;
+        const isStructureBroken = triggerCandle.close > highOfPrevious15m;
+        
+        const isEntrySignal = triggerCandle.close > lastEma9 && triggerCandle.volume > avgVolume * 1.5 && isStructureBroken;
 
         if (isEntrySignal) {
-            this.log('TRADE', `[1m TRIGGER] Precision entry signal detected for ${symbol}!`);
+            this.log('TRADE', `[1m TRIGGER] Precision entry signal for ${symbol}. Structure break CONFIRMED.`);
             pair.score = 'STRONG BUY'; // Update score to reflect the trigger
             broadcast({ type: 'SCANNER_UPDATE', payload: pair });
             
@@ -452,6 +464,9 @@ class RealtimeAnalyzer {
     }
 
     handleNewKline(symbol, interval, kline) {
+        if(symbol === 'BTCUSDT' && interval === '1m' && kline.closeTime) {
+            checkCircuitBreaker();
+        }
         log('BINANCE_WS', `[${interval} KLINE] Received for ${symbol}. Close: ${kline.close}`);
         if (!this.klineData.has(symbol) || !this.klineData.get(symbol).has(interval)) {
             this.hydrateSymbol(symbol, interval);
@@ -570,6 +585,9 @@ function updateBinanceSubscriptions(baseSymbols) {
         newStreams.add(`${s.toLowerCase()}@kline_1m`);
     });
 
+    // Always subscribe to BTCUSDT 1m kline for circuit breaker
+    newStreams.add('btcusdt@kline_1m');
+
     const streamsToUnsub = [...subscribedStreams].filter(s => !newStreams.has(s));
     const streamsToSub = [...newStreams].filter(s => !subscribedStreams.has(s));
 
@@ -628,6 +646,7 @@ let botState = {
     recentlyLostSymbols: new Map(), // symbol -> { until: timestamp }
     hotlist: new Set(), // Symbols ready for 1m precision entry
     priceCache: new Map(), // symbol -> { price: number }
+    circuitBreakerActive: false,
 };
 
 const scanner = new ScannerService(log, KLINE_DATA_DIR);
@@ -656,6 +675,7 @@ async function runScannerCycle() {
                 existingPair.price = discoveredPair.price;
                 existingPair.price_above_ema50_4h = discoveredPair.price_above_ema50_4h;
                 existingPair.rsi_1h = discoveredPair.rsi_1h;
+                existingPair.trend_score = discoveredPair.trend_score;
             } else {
                 // This is a new pair not seen before. Add it to the main cache
                 // and mark it for historical data hydration.
@@ -688,19 +708,19 @@ const settingProfiles = {
         PARABOLIC_FILTER_THRESHOLD_PCT: 2.5, USE_ATR_STOP_LOSS: true, ATR_MULTIPLIER: 1.5, USE_PARTIAL_TAKE_PROFIT: true,
         PARTIAL_TP_TRIGGER_PCT: 0.8, PARTIAL_TP_SELL_QTY_PCT: 50, USE_AUTO_BREAKEVEN: true, BREAKEVEN_TRIGGER_PCT: 1.0,
         ADJUST_BREAKEVEN_FOR_FEES: true, TRANSACTION_FEE_PCT: 0.1, USE_TRAILING_STOP_LOSS: true, TRAILING_STOP_LOSS_PCT: 2.5,
-        TAKE_PROFIT_PCT: 15.0,
+        RISK_REWARD_RATIO: 5.0,
     },
     'Le Scalpeur': {
         POSITION_SIZE_PCT: 3.0, MAX_OPEN_POSITIONS: 5, REQUIRE_STRONG_BUY: false, USE_RSI_SAFETY_FILTER: true,
         RSI_OVERBOUGHT_THRESHOLD: 70, USE_PARABOLIC_FILTER: true, PARABOLIC_FILTER_PERIOD_MINUTES: 5,
-        PARABOLIC_FILTER_THRESHOLD_PCT: 3.5, USE_ATR_STOP_LOSS: false, STOP_LOSS_PCT: 2.0, TAKE_PROFIT_PCT: 1.5,
+        PARABOLIC_FILTER_THRESHOLD_PCT: 3.5, USE_ATR_STOP_LOSS: false, STOP_LOSS_PCT: 2.0, RISK_REWARD_RATIO: 0.75,
         USE_PARTIAL_TAKE_PROFIT: false, USE_AUTO_BREAKEVEN: false, ADJUST_BREAKEVEN_FOR_FEES: false,
         TRANSACTION_FEE_PCT: 0.1, USE_TRAILING_STOP_LOSS: false,
     },
     'Le Chasseur de Volatilité': {
         POSITION_SIZE_PCT: 4.0, MAX_OPEN_POSITIONS: 8, REQUIRE_STRONG_BUY: false, USE_RSI_SAFETY_FILTER: false,
         RSI_OVERBOUGHT_THRESHOLD: 80, USE_PARABOLIC_FILTER: false, USE_ATR_STOP_LOSS: true, ATR_MULTIPLIER: 2.0,
-        TAKE_PROFIT_PCT: 10.0, USE_PARTIAL_TAKE_PROFIT: false, USE_AUTO_BREAKEVEN: true, BREAKEVEN_TRIGGER_PCT: 2.0,
+        RISK_REWARD_RATIO: 3.0, USE_PARTIAL_TAKE_PROFIT: false, USE_AUTO_BREAKEVEN: true, BREAKEVEN_TRIGGER_PCT: 2.0,
         ADJUST_BREAKEVEN_FOR_FEES: true, TRANSACTION_FEE_PCT: 0.1, USE_TRAILING_STOP_LOSS: true, TRAILING_STOP_LOSS_PCT: 1.2,
     }
 };
@@ -709,6 +729,11 @@ const settingProfiles = {
 const tradingEngine = {
     evaluateAndOpenTrade(pair, slPriceReference) {
         if (!botState.isRunning) return false;
+        if (botState.circuitBreakerActive) {
+            log('WARN', `Trade for ${pair.symbol} blocked: Global Circuit Breaker is active.`);
+            return false;
+        }
+
         const s = botState.settings;
         let tradeSettings = { ...s };
 
@@ -794,13 +819,7 @@ const tradingEngine = {
             return false;
         }
         
-        // --- DIVISION BY ZERO PROTECTION ---
-        if (!tradeSettings.USE_ATR_STOP_LOSS && (!tradeSettings.STOP_LOSS_PCT || tradeSettings.STOP_LOSS_PCT <= 0)) {
-            log('ERROR', `STOP_LOSS_PCT is zero or invalid (${tradeSettings.STOP_LOSS_PCT}%) while not using ATR stop loss for ${pair.symbol}. Aborting trade.`);
-            return false;
-        }
-        const riskRewardRatio = tradeSettings.TAKE_PROFIT_PCT / tradeSettings.STOP_LOSS_PCT;
-        const takeProfit = entryPrice + (riskPerUnit * riskRewardRatio);
+        const takeProfit = entryPrice + (riskPerUnit * tradeSettings.RISK_REWARD_RATIO);
 
         const newTrade = {
             id: botState.tradeIdCounter++,
@@ -955,6 +974,36 @@ const tradingEngine = {
         log('TRADE', `[PARTIAL TP] Sold ${s.PARTIAL_TP_SELL_QTY_PCT}% of ${position.symbol} at $${currentPrice}. Realized PnL: $${pnlFromSale.toFixed(2)}`);
         
         // This doesn't save state or broadcast, as it's part of the main loop's modifications
+    }
+};
+
+const checkCircuitBreaker = () => {
+    if (botState.circuitBreakerActive) return;
+
+    const btcKlines1m = realtimeAnalyzer.klineData.get('BTCUSDT')?.get('1m');
+    if (!btcKlines1m || btcKlines1m.length < 5) return;
+
+    const periodKlines = btcKlines1m.slice(-5);
+    const startPrice = periodKlines[0].open;
+    const currentPrice = periodKlines[periodKlines.length - 1].close;
+    const dropPct = ((startPrice - currentPrice) / startPrice) * 100;
+
+    if (dropPct >= 5.0) { // 5% drop in 5 mins
+        log('ERROR', `!!! CIRCUIT BREAKER TRIPPED !!! BTCUSDT dropped ${dropPct.toFixed(2)}% in 5 minutes. Halting all trading activity.`);
+        botState.circuitBreakerActive = true;
+        broadcast({ type: 'CIRCUIT_BREAKER_UPDATE', payload: { active: true } });
+        
+        const positionsToClose = [...botState.activePositions];
+        if (positionsToClose.length > 0) {
+            log('ERROR', `Closing ${positionsToClose.length} open positions due to Circuit Breaker.`);
+            positionsToClose.forEach(pos => {
+                const priceData = botState.priceCache.get(pos.symbol);
+                const exitPrice = priceData ? priceData.price : pos.entry_price;
+                tradingEngine.closeTrade(pos.id, exitPrice, 'Circuit Breaker');
+            });
+            saveData('state');
+            broadcast({ type: 'POSITIONS_UPDATED' });
+        }
     }
 };
 
