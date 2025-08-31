@@ -71,10 +71,10 @@ const Dot: React.FC<{ active: boolean; tooltip: string }> = ({ active, tooltip }
 
 const ConditionDots: React.FC<{ conditions?: StrategyConditions }> = ({ conditions }) => {
     const conditionTooltips = {
-        trend: 'Tendance 4h (Prix > EMA50)',
-        squeeze: 'Compression 15m (BB Squeeze)',
-        breakout: 'Cassure 15m (Clôture > BB Sup.)',
-        volume: 'Volume 15m (Volume > 2x Moyenne)',
+        trend: 'Score de Tendance Macro > 50',
+        squeeze: 'Compression 15m (BB Squeeze sur bougie précédente)',
+        structure: 'Confirmation Structurelle (Prêt pour cassure du plus haut 15m)',
+        volume: 'Confirmation Volume (Volume > 1.5x Moyenne)',
         safety: 'Sécurité 1h (RSI < Seuil)',
     };
 
@@ -82,7 +82,7 @@ const ConditionDots: React.FC<{ conditions?: StrategyConditions }> = ({ conditio
         <div className="flex items-center space-x-2">
             <Dot active={conditions?.trend ?? false} tooltip={conditionTooltips.trend} />
             <Dot active={conditions?.squeeze ?? false} tooltip={conditionTooltips.squeeze} />
-            <Dot active={conditions?.breakout ?? false} tooltip={conditionTooltips.breakout} />
+            <Dot active={conditions?.structure ?? true} tooltip={conditionTooltips.structure} />
             <Dot active={conditions?.volume ?? false} tooltip={conditionTooltips.volume} />
             <Dot active={conditions?.safety ?? false} tooltip={conditionTooltips.safety} />
         </div>
@@ -167,10 +167,12 @@ const ScannerPage: React.FC = () => {
 
   
   // --- COLOR CODING HELPERS ---
-  const getTrendColorClass = (isAbove?: boolean): string => {
-    if (isAbove === true) return 'text-green-400'; // Favorable
-    if (isAbove === false) return 'text-red-400'; // Unfavorable
-    return 'text-gray-500'; // Neutral / Not available
+  const getTrendScoreColorClass = (score: number | undefined): string => {
+    if (score === undefined) return 'text-gray-500';
+    if (score > 75) return 'text-green-400';
+    if (score > 50) return 'text-sky-400';
+    if (score > 25) return 'text-yellow-400';
+    return 'text-red-400';
   };
 
   const getRsiColorClass = (rsi?: number): string => {
@@ -253,9 +255,9 @@ const ScannerPage: React.FC = () => {
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="is_on_hotlist" className="text-center">Hotlist</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="symbol">Symbole</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="price">Prix</SortableHeader>
-                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="score_value">Score</SortableHeader>
-                        <th scope="col" className="px-2 sm:px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Conditions</th>
-                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="price_above_ema50_4h">Tendance 4h</SortableHeader>
+                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="score_value">Score Global</SortableHeader>
+                        <th scope="col" className="px-2 sm:px-4 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Conditions Micro</th>
+                        <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="macro_trend_score">Score Tendance 4h</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="rsi_1h">RSI 1h</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="volume">Volume 24h</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="adx_15m">ADX 15m</SortableHeader>
@@ -296,10 +298,8 @@ const ScannerPage: React.FC = () => {
                                     <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap">
                                         <ConditionDots conditions={pair.conditions} />
                                     </td>
-                                    <td className="px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">
-                                        <span className={getTrendColorClass(pair.price_above_ema50_4h)}>
-                                            {pair.price_above_ema50_4h === true ? '▲ HAUSSIER' : (pair.price_above_ema50_4h === false ? '▼ BAISSIER' : '-')}
-                                        </span>
+                                    <td className={`px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm font-bold ${getTrendScoreColorClass(pair.macro_trend_score)}`}>
+                                        {pair.macro_trend_score?.toFixed(0) ?? 'N/A'}
                                     </td>
                                     <td className={`px-2 sm:px-4 lg:px-6 py-4 whitespace-nowrap text-sm ${getRsiColorClass(pair.rsi_1h)}`}>
                                         {pair.rsi_1h?.toFixed(1) || 'N/A'}

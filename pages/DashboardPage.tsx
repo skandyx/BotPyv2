@@ -31,6 +31,14 @@ const getScoreBadgeClass = (score: ScannedPair['score'] | undefined) => {
     }
 };
 
+const getTrendScoreColorClass = (score: number | undefined) => {
+    if (score === undefined) return 'text-gray-500';
+    if (score > 75) return 'text-green-400';
+    if (score > 50) return 'text-sky-400';
+    if (score > 25) return 'text-yellow-400';
+    return 'text-red-400';
+};
+
 const ActivePositionsTable: React.FC<{ positions: Trade[], onManualClose: (trade: Trade) => void, onSymbolClick: (symbol: string) => void }> = ({ positions, onManualClose, onSymbolClick }) => {
     const getSideClass = (side: OrderSide) => side === OrderSide.BUY ? 'text-green-400' : 'text-red-400';
     const getPnlClass = (pnl: number = 0) => {
@@ -48,7 +56,7 @@ const ActivePositionsTable: React.FC<{ positions: Trade[], onManualClose: (trade
             <table className="min-w-full divide-y divide-[#2b2f38]">
                 <thead className="bg-[#14181f]">
                     <tr>
-                        {['Symbole', 'Côté', 'Prix d\'Entrée', 'Prix Actuel', 'Quantité', 'Stop Loss', 'Take Profit', 'PnL ($)', 'PnL %', 'Score Entrée', 'Tendance 4h (EMA50)', 'RSI 1h Entrée'].map(header => (
+                        {['Symbole', 'Côté', 'Prix d\'Entrée', 'Prix Actuel', 'Quantité', 'Stop Loss', 'Take Profit', 'PnL ($)', 'PnL %', 'Score Entrée', 'Score Tendance 4h', 'RSI 1h Entrée'].map(header => (
                             <th key={header} scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">{header}</th>
                         ))}
                         <th scope="col" className="relative px-3 lg:px-6 py-3">
@@ -80,8 +88,8 @@ const ActivePositionsTable: React.FC<{ positions: Trade[], onManualClose: (trade
                                         {snapshot?.score || 'N/A'}
                                     </span>
                                 </td>
-                                <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">
-                                     {snapshot?.price_above_ema50_4h === true ? <span className="text-green-400">▲ HAUSSIER</span> : (snapshot?.price_above_ema50_4h === false ? <span className="text-red-400">▼ BAISSIER</span> : <span className="text-gray-500">-</span>)}
+                                <td className={`px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold ${getTrendScoreColorClass(snapshot?.macro_trend_score)}`}>
+                                    {snapshot?.macro_trend_score?.toFixed(0) ?? 'N/A'}
                                 </td>
                                 <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-300">{snapshot?.rsi_1h?.toFixed(1) || 'N/A'}</td>
                                 <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-right text-sm font-medium">

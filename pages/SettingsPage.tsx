@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { api } from '../services/mockApi';
 import { BotSettings } from '../types';
@@ -12,9 +13,9 @@ type ProfileName = 'Le Sniper' | 'Le Scalpeur' | 'Le Chasseur de Volatilité';
 type ActiveProfile = ProfileName | 'PERSONNALISE';
 
 const profileTooltips: Record<ProfileName, string> = {
-    'Le Sniper': "PRUDENT : Vise la qualité maximale. Filtres très stricts et gestion 'Profit Runner' pour laisser courir les gagnants au maximum.",
-    'Le Scalpeur': "ÉQUILIBRÉ : Optimisé pour des gains rapides et constants. Take profit très serré, idéal pour les marchés en range.",
-    'Le Chasseur de Volatilité': "AGRESSIF : Conçu pour les marchés explosifs. Filtres de sécurité désactivés et gestion du risque adaptée à une forte volatilité."
+    'Le Sniper': "PRUDENT : Vise la qualité maximale et les grandes tendances. Utilise un SL et un TP larges basés sur l'ATR pour laisser le trade respirer, et un trailing stop pour maximiser les gains.",
+    'Le Scalpeur': "ÉQUILIBRÉ : Optimisé pour des gains rapides et constants. Vise des objectifs de profit serrés (1.5x le risque ATR) sans trailing stop. Idéal pour les marchés en range.",
+    'Le Chasseur de Volatilité': "AGRESSIF : Conçu pour survivre et profiter des marchés explosifs. Utilise un SL ATR très large pour ne pas être sorti par le bruit, et un trailing stop serré pour sécuriser les gains rapidement."
 };
 
 const settingProfiles: Record<ProfileName, Partial<BotSettings>> = {
@@ -27,8 +28,8 @@ const settingProfiles: Record<ProfileName, Partial<BotSettings>> = {
         USE_PARABOLIC_FILTER: true,
         PARABOLIC_FILTER_PERIOD_MINUTES: 5,
         PARABOLIC_FILTER_THRESHOLD_PCT: 2.5,
-        USE_ATR_STOP_LOSS: true,
-        ATR_MULTIPLIER: 1.5,
+        SL_ATR_MULTIPLIER: 1.5,
+        TP_ATR_MULTIPLIER: 4.0, // High R:R, relies on trailing
         USE_PARTIAL_TAKE_PROFIT: true,
         PARTIAL_TP_TRIGGER_PCT: 0.8,
         PARTIAL_TP_SELL_QTY_PCT: 50,
@@ -37,8 +38,7 @@ const settingProfiles: Record<ProfileName, Partial<BotSettings>> = {
         ADJUST_BREAKEVEN_FOR_FEES: true,
         TRANSACTION_FEE_PCT: 0.1,
         USE_TRAILING_STOP_LOSS: true,
-        TRAILING_STOP_LOSS_PCT: 2.5, // Wide trailing stop
-        TAKE_PROFIT_PCT: 15.0, // High target, rely on trailing
+        TRAILING_STOP_ATR_MULTIPLIER: 2.0, 
     },
     'Le Scalpeur': { // EQUILIBRE
         POSITION_SIZE_PCT: 3.0,
@@ -49,14 +49,14 @@ const settingProfiles: Record<ProfileName, Partial<BotSettings>> = {
         USE_PARABOLIC_FILTER: true,
         PARABOLIC_FILTER_PERIOD_MINUTES: 5,
         PARABOLIC_FILTER_THRESHOLD_PCT: 3.5,
-        USE_ATR_STOP_LOSS: false,
-        STOP_LOSS_PCT: 2.0,
-        TAKE_PROFIT_PCT: 1.5, // Very tight TP
+        SL_ATR_MULTIPLIER: 1.2,
+        TP_ATR_MULTIPLIER: 1.5, // Tight TP based on ATR
         USE_PARTIAL_TAKE_PROFIT: false,
         USE_AUTO_BREAKEVEN: false,
         ADJUST_BREAKEVEN_FOR_FEES: false,
         TRANSACTION_FEE_PCT: 0.1,
         USE_TRAILING_STOP_LOSS: false,
+        TRAILING_STOP_ATR_MULTIPLIER: 1.0,
     },
     'Le Chasseur de Volatilité': { // AGRESSIF
         POSITION_SIZE_PCT: 4.0,
@@ -65,16 +65,15 @@ const settingProfiles: Record<ProfileName, Partial<BotSettings>> = {
         USE_RSI_SAFETY_FILTER: false, // Filters off
         RSI_OVERBOUGHT_THRESHOLD: 80,
         USE_PARABOLIC_FILTER: false, // Filters off
-        USE_ATR_STOP_LOSS: true, // Wider ATR SL to survive volatility
-        ATR_MULTIPLIER: 2.0,
-        TAKE_PROFIT_PCT: 10.0,
+        SL_ATR_MULTIPLIER: 2.5, // Wider ATR SL to survive volatility
+        TP_ATR_MULTIPLIER: 6.0,
         USE_PARTIAL_TAKE_PROFIT: false,
         USE_AUTO_BREAKEVEN: true,
         BREAKEVEN_TRIGGER_PCT: 2.0,
         ADJUST_BREAKEVEN_FOR_FEES: true,
         TRANSACTION_FEE_PCT: 0.1,
         USE_TRAILING_STOP_LOSS: true,
-        TRAILING_STOP_LOSS_PCT: 1.2, // Tight, aggressive trailing stop
+        TRAILING_STOP_ATR_MULTIPLIER: 1.2, // Tight, aggressive trailing stop
     }
 };
 
@@ -84,22 +83,20 @@ const tooltips: Record<string, string> = {
     INITIAL_VIRTUAL_BALANCE: "Le capital de départ pour votre compte de trading virtuel. Ce montant est appliqué lorsque vous effacez toutes les données de trading.",
     MAX_OPEN_POSITIONS: "Le nombre maximum de trades que le bot peut avoir ouverts en même temps. Aide à contrôler l'exposition globale au risque.",
     POSITION_SIZE_PCT: "Le pourcentage de votre solde total à utiliser pour chaque nouveau trade. (ex: 2% sur un solde de 10 000 $ se traduira par des positions de 200 $).",
-    TAKE_PROFIT_PCT: "Le pourcentage de profit auquel un trade sera automatiquement clôturé. C'est l'objectif initial si le Trailing Stop Loss est désactivé.",
-    STOP_LOSS_PCT: "Le pourcentage de perte auquel un trade sera automatiquement clôturé pour éviter de nouvelles pertes. C'est le risque maximum par trade.",
-    USE_TRAILING_STOP_LOSS: "Active un stop loss dynamique qui monte pour sécuriser les profits à mesure que le prix augmente, mais ne descend jamais.",
-    TRAILING_STOP_LOSS_PCT: "Le pourcentage en dessous du prix le plus élevé auquel le trailing stop loss sera fixé. Une valeur plus petite est plus serrée, une valeur plus grande est plus lâche.",
     SLIPPAGE_PCT: "Un petit pourcentage pour simuler la différence entre le prix d'exécution attendu et réel d'un trade sur un marché en direct.",
     MIN_VOLUME_USD: "Le volume de trading minimum sur 24 heures qu'une paire doit avoir pour être prise en compte par le scanner. Filtre les marchés illiquides.",
     SCANNER_DISCOVERY_INTERVAL_SECONDS: "La fréquence (en secondes) à laquelle le bot doit effectuer un scan complet du marché pour découvrir et analyser les paires en fonction de leurs données graphiques sur 4h.",
     USE_VOLUME_CONFIRMATION: "Si activé, une cassure (breakout) n'est valide que si le volume est significativement supérieur à sa moyenne récente, confirmant l'intérêt du marché.",
-    USE_MARKET_REGIME_FILTER: "Un filtre maître. Si activé, le bot ne tradera que si la structure du marché à long terme (basée sur les MA 50/200 sur le graphique 4h) est dans une TENDANCE HAUSSIÈRE confirmée.",
-    REQUIRE_STRONG_BUY: "Si activé, le bot n'ouvrira de nouvelles transactions que pour les paires avec un score 'STRONG BUY'. Il ignorera les paires avec un score 'BUY' régulier, rendant la stratégie plus sélective.",
+    USE_MARKET_REGIME_FILTER: "Un filtre maître. Si activé, le bot ne tradera que si le Score de Tendance Macro (basé sur la force, la pente et l'alignement des MME 4h) est suffisamment élevé.",
+    REQUIRE_STRONG_BUY: "Si activé, le bot n'ouvrira de nouvelles transactions que pour les paires avec un score 'STRONG BUY' (après confirmation de la structure 15m), rendant la stratégie plus sélective.",
     LOSS_COOLDOWN_HOURS: "Anti-Churn : Si une transaction sur un symbole est clôturée à perte, le bot sera empêché de trader ce même symbole pendant ce nombre d'heures.",
     EXCLUDED_PAIRS: "Une liste de paires séparées par des virgules à ignorer complètement, quel que soit leur volume (par exemple, USDCUSDT,FDUSDUSDT).",
     BINANCE_API_KEY: "Votre clé API publique Binance. Requise pour les modes de trading live et paper.",
     BINANCE_SECRET_KEY: "Votre clé API secrète Binance. Elle est stockée en toute sécurité sur le serveur et n'est jamais exposée au frontend.",
-    USE_ATR_STOP_LOSS: "Utiliser un Stop Loss dynamique basé sur l'Average True Range (ATR), qui s'adapte à la volatilité du marché au lieu d'un pourcentage fixe.",
-    ATR_MULTIPLIER: "Le multiplicateur à appliquer à la valeur ATR pour définir la distance du Stop Loss (ex: 1.5 signifie que le SL sera à 1.5 * ATR en dessous du prix d'entrée).",
+    SL_ATR_MULTIPLIER: "Le multiplicateur à appliquer à la valeur de l'ATR (Average True Range) pour définir la distance du Stop Loss. (ex: 1.5 signifie que le SL sera à 1.5 * ATR en dessous du prix d'entrée). C'est la base de votre risque.",
+    TP_ATR_MULTIPLIER: "Le multiplicateur ATR pour définir l'objectif de Take Profit. Un multiplicateur de 3.0 avec un SL à 1.5 résultera en un Ratio Risque/Récompense de 2:1.",
+    USE_TRAILING_STOP_LOSS: "Active un stop loss dynamique qui monte pour sécuriser les profits à mesure que le prix augmente, mais ne descend jamais.",
+    TRAILING_STOP_ATR_MULTIPLIER: "Le multiplicateur ATR pour définir la distance à laquelle le stop suiveur se maintiendra en dessous du prix le plus élevé atteint. Plus la valeur est petite, plus le suivi est serré.",
     USE_AUTO_BREAKEVEN: "Déplacer automatiquement le Stop Loss au prix d'entrée une fois qu'un trade est en profit, éliminant le risque de perte.",
     BREAKEVEN_TRIGGER_PCT: "Le pourcentage de profit (%) auquel déclencher le passage au seuil de rentabilité (ex: 0.5% signifie que lorsque le profit atteint 0.5%, le SL est déplacé au prix d'entrée).",
     ADJUST_BREAKEVEN_FOR_FEES: "Si activé, le 'Break-Even' sera légèrement au-dessus du prix d'entrée pour couvrir les frais de transaction de l'achat et de la vente, assurant une sortie à 0$ P&L net.",
@@ -116,7 +113,12 @@ const tooltips: Record<string, string> = {
     PARABOLIC_FILTER_THRESHOLD_PCT: "Le pourcentage maximum d'augmentation de prix autorisé sur la période de vérification. Si le prix a augmenté plus que ce seuil, le trade est ignoré pour éviter d'entrer sur un pic insoutenable.",
     USE_DYNAMIC_PROFILE_SELECTOR: "Si activé, le bot choisira automatiquement le meilleur profil (Sniper, Scalpeur, Chasseur) pour chaque trade en fonction des conditions de marché (tendance, volatilité) au moment de l'entrée.",
     ADX_THRESHOLD_RANGE: "Le seuil ADX (15m) en dessous duquel un marché est considéré comme étant en 'range' (faible tendance), déclenchant le profil 'Scalpeur'.",
-    ATR_PCT_THRESHOLD_VOLATILE: "Le seuil de l'ATR (en % du prix) au-dessus duquel un marché est considéré comme hyper-volatil, déclenchant le profil 'Chasseur de Volatilité'."
+    ATR_PCT_THRESHOLD_VOLATILE: "Le seuil de l'ATR (en % du prix) au-dessus duquel un marché est considéré comme hyper-volatil, déclenchant le profil 'Chasseur de Volatilité'.",
+    USE_CIRCUIT_BREAKER: "Active le disjoncteur global. C'est un garde-fou qui surveille un actif majeur (comme BTC) pour détecter un 'flash crash' du marché.",
+    CIRCUIT_BREAKER_SYMBOL: "Le symbole à surveiller pour le disjoncteur (ex: BTCUSDT).",
+    CIRCUIT_BREAKER_THRESHOLD_PCT: "Le pourcentage de chute de prix qui déclenchera le disjoncteur.",
+    CIRCUIT_BREAKER_PERIOD_MINUTES: "La période (en minutes) sur laquelle la chute de prix est mesurée.",
+    CIRCUIT_BREAKER_COOLDOWN_HOURS: "La durée (en heures) pendant laquelle le bot restera en pause après le déclenchement du disjoncteur."
 };
 
 const inputClass = "mt-1 block w-full rounded-md border-[#3e4451] bg-[#0c0e12] shadow-sm focus:border-[#f0b90b] focus:ring-[#f0b90b] sm:text-sm text-white";
@@ -390,27 +392,27 @@ const SettingsPage: React.FC = () => {
                 <div className="space-y-6">
                     {/* Trading Parameters */}
                     <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-6 shadow-lg">
-                        <h3 className="text-lg font-semibold text-white mb-4">Paramètres de Trading</h3>
+                        <h3 className="text-lg font-semibold text-white mb-4">Gestion de Trade (ATR)</h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                             <InputField id="SL_ATR_MULTIPLIER" label="Multiplicateur ATR (SL)" step="0.1" children={<span className="text-gray-400 text-sm">x ATR</span>}/>
+                             <InputField id="TP_ATR_MULTIPLIER" label="Multiplicateur ATR (TP)" step="0.1" children={<span className="text-gray-400 text-sm">x ATR</span>}/>
                              <InputField id="MAX_OPEN_POSITIONS" label="Positions Ouvertes Max" />
                              <InputField id="POSITION_SIZE_PCT" label="Taille de Position (%)" step="0.1" children={<span className="text-gray-400 text-sm">%</span>}/>
-                             <InputField id="STOP_LOSS_PCT" label="Stop Loss (%)" step="0.1" children={<span className="text-gray-400 text-sm">%</span>}/>
-                             <InputField id="TAKE_PROFIT_PCT" label="Take Profit (%)" step="0.1" children={<span className="text-gray-400 text-sm">%</span>}/>
                              <InputField id="INITIAL_VIRTUAL_BALANCE" label="Solde Virtuel Initial" step="100" children={<span className="text-gray-400 text-sm">$</span>}/>
                              <InputField id="SLIPPAGE_PCT" label="Slippage Simulé (%)" step="0.01" children={<span className="text-gray-400 text-sm">%</span>}/>
                         </div>
                     </div>
                     {/* Advanced Strategy */}
                     <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-6 shadow-lg">
-                        <h3 className="text-lg font-semibold text-white mb-4">Stratégie Avancée</h3>
+                        <h3 className="text-lg font-semibold text-white mb-4">Stratégie & Filtres d'Entrée</h3>
                         <div className="space-y-4">
-                            <ToggleField id="USE_MARKET_REGIME_FILTER" label="Filtre de Tendance Maître (4h)" />
+                            <ToggleField id="USE_MARKET_REGIME_FILTER" label="Filtre de Tendance Maître (Score > 50)" />
                             <ToggleField id="USE_VOLUME_CONFIRMATION" label="Confirmation par Volume (1m)" />
                             <ToggleField id="USE_RSI_SAFETY_FILTER" label="Filtre de Sécurité RSI (1h)" />
                              <div className={`transition-opacity ${settings.USE_RSI_SAFETY_FILTER ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
                                 <InputField id="RSI_OVERBOUGHT_THRESHOLD" label="Seuil de Surchauffe RSI" />
                             </div>
-                            <ToggleField id="REQUIRE_STRONG_BUY" label="Exiger un 'STRONG BUY' pour l'entrée" />
+                            <ToggleField id="REQUIRE_STRONG_BUY" label="Exiger Confirmation de Structure (15m)" />
                             <InputField id="LOSS_COOLDOWN_HOURS" label="Cooldown après Perte (Heures)" children={<span className="text-gray-400 text-sm">h</span>}/>
                         </div>
                     </div>
@@ -427,12 +429,17 @@ const SettingsPage: React.FC = () => {
                         </div>
                     </div>
 
-                    {/* Dynamic Profile Thresholds */}
-                    <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-6 shadow-lg">
-                        <h3 className="text-lg font-semibold text-white mb-4">Seuils du Profil Dynamique</h3>
-                        <div className={`space-y-4 transition-opacity ${settings.USE_DYNAMIC_PROFILE_SELECTOR ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
-                             <InputField id="ADX_THRESHOLD_RANGE" label="Seuil ADX (Marché en Range)" />
-                             <InputField id="ATR_PCT_THRESHOLD_VOLATILE" label="Seuil ATR % (Marché Volatil)" step="0.1" />
+                     {/* Global Circuit Breaker */}
+                    <div className="bg-red-900/40 border border-red-700/50 rounded-lg p-6 shadow-lg">
+                        <h3 className="text-lg font-semibold text-red-200 mb-4">Disjoncteur Global (Garde-Fou)</h3>
+                         <div className="space-y-4">
+                             <ToggleField id="USE_CIRCUIT_BREAKER" label="Activer le Disjoncteur Global" />
+                            <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 transition-opacity ${settings.USE_CIRCUIT_BREAKER ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                                 <InputField id="CIRCUIT_BREAKER_SYMBOL" label="Symbole Surveillé" type="text" />
+                                 <InputField id="CIRCUIT_BREAKER_THRESHOLD_PCT" label="Seuil de Chute (%)" step="0.1" />
+                                 <InputField id="CIRCUIT_BREAKER_PERIOD_MINUTES" label="Période de Vérif. (min)" />
+                                 <InputField id="CIRCUIT_BREAKER_COOLDOWN_HOURS" label="Pause Après (heures)" />
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -465,11 +472,6 @@ const SettingsPage: React.FC = () => {
                     <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-6 shadow-lg">
                         <h3 className="text-lg font-semibold text-white mb-4">Gestion Dynamique du Risque</h3>
                         <div className="space-y-4">
-                            <ToggleField id="USE_ATR_STOP_LOSS" label="Stop Loss basé sur l'ATR" />
-                             <div className={`transition-opacity ${settings.USE_ATR_STOP_LOSS ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
-                                <InputField id="ATR_MULTIPLIER" label="Multiplicateur ATR" step="0.1" />
-                            </div>
-                            <hr className="border-gray-700"/>
                             <ToggleField id="USE_AUTO_BREAKEVEN" label="Mise à Zéro Automatique (Break-Even)" />
                              <div className={`pl-4 space-y-4 mt-2 transition-opacity ${settings.USE_AUTO_BREAKEVEN ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
                                 <InputField id="BREAKEVEN_TRIGGER_PCT" label="Déclencheur Break-Even (%)" step="0.1" />
@@ -487,7 +489,7 @@ const SettingsPage: React.FC = () => {
                             <hr className="border-gray-700"/>
                             <ToggleField id="USE_TRAILING_STOP_LOSS" label="Stop Loss Suiveur (Trailing)" />
                             <div className={`transition-opacity ${settings.USE_TRAILING_STOP_LOSS ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
-                                <InputField id="TRAILING_STOP_LOSS_PCT" label="Distance Trailing Stop (%)" step="0.1" />
+                                <InputField id="TRAILING_STOP_ATR_MULTIPLIER" label="Distance Trailing (x ATR)" step="0.1" />
                             </div>
                              <hr className="border-gray-700"/>
                             <ToggleField id="USE_DYNAMIC_POSITION_SIZING" label="Dimensionnement Dynamique de Position" />
@@ -496,13 +498,21 @@ const SettingsPage: React.FC = () => {
                             </div>
                         </div>
                     </div>
+                     {/* Dynamic Profile Thresholds */}
+                    <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-6 shadow-lg">
+                        <h3 className="text-lg font-semibold text-white mb-4">Seuils du Profil Dynamique</h3>
+                        <div className={`space-y-4 transition-opacity ${settings.USE_DYNAMIC_PROFILE_SELECTOR ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                             <InputField id="ADX_THRESHOLD_RANGE" label="Seuil ADX (Marché en Range)" />
+                             <InputField id="ATR_PCT_THRESHOLD_VOLATILE" label="Seuil ATR % (Marché Volatil)" step="0.1" />
+                        </div>
+                    </div>
                 </div>
             </div>
 
             {/* API and Security Section */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                  <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-6 shadow-lg">
-                     <h3 className="text-lg font-semibold text-white mb-4">Clés API</h3>
+                     <h3 className="text-lg font-semibold text-white mb-4">Clés API & Actions</h3>
                      <div className="space-y-4">
                         <div>
                             <label htmlFor="BINANCE_API_KEY" className="flex items-center text-sm font-medium text-gray-300">
@@ -519,34 +529,32 @@ const SettingsPage: React.FC = () => {
                          <button onClick={handleTestBinanceConnection} disabled={isTestingBinance} className="w-full text-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-gray-600 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 disabled:opacity-50">
                              {isTestingBinance ? <Spinner size="sm" /> : 'Tester la Connexion Binance'}
                          </button>
+                         <div className="bg-red-900/50 border border-red-700 rounded-lg p-4">
+                            <h4 className="text-md font-semibold text-red-200">Zone de Danger</h4>
+                            <p className="text-sm text-red-300 my-2">Cette action est irréversible et effacera tout votre historique de transactions.</p>
+                            <button onClick={() => setIsClearModalOpen(true)} className="w-full text-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500">
+                               Effacer Toutes les Données de Transaction
+                            </button>
+                        </div>
                      </div>
                  </div>
 
-                 <div className="space-y-6">
-                    <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-6 shadow-lg">
-                         <h3 className="text-lg font-semibold text-white mb-4">Sécurité</h3>
-                         <div className="space-y-4">
-                             <div>
-                                 <label htmlFor="newPassword" className="text-sm font-medium text-gray-300">Nouveau Mot de Passe</label>
-                                 <input type="password" id="newPassword" value={newPassword} onChange={e => setNewPassword(e.target.value)} className={inputClass} placeholder="Au moins 8 caractères"/>
-                             </div>
-                             <div>
-                                 <label htmlFor="confirmPassword" className="text-sm font-medium text-gray-300">Confirmer le Mot de Passe</label>
-                                 <input type="password" id="confirmPassword" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className={inputClass} />
-                             </div>
-                             <button onClick={handleUpdatePassword} disabled={isSaving} className="w-full text-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-black bg-sky-400 hover:bg-sky-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 disabled:opacity-50">
-                                 Mettre à Jour le Mot de Passe
-                             </button>
+                 <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-6 shadow-lg">
+                     <h3 className="text-lg font-semibold text-white mb-4">Sécurité</h3>
+                     <div className="space-y-4">
+                         <div>
+                             <label htmlFor="newPassword" className="text-sm font-medium text-gray-300">Nouveau Mot de Passe</label>
+                             <input type="password" id="newPassword" value={newPassword} onChange={e => setNewPassword(e.target.value)} className={inputClass} placeholder="Au moins 8 caractères"/>
                          </div>
-                    </div>
-                     <div className="bg-red-900/50 border border-red-700 rounded-lg p-6 shadow-lg">
-                        <h3 className="text-lg font-semibold text-red-200 mb-2">Zone de Danger</h3>
-                        <p className="text-sm text-red-300 mb-4">Cette action est irréversible. Elle effacera tout votre historique de transactions et réinitialisera votre solde virtuel.</p>
-                        <button onClick={() => setIsClearModalOpen(true)} className="w-full text-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500">
-                           Effacer Toutes les Données de Transaction
-                        </button>
-                    </div>
-                 </div>
+                         <div>
+                             <label htmlFor="confirmPassword" className="text-sm font-medium text-gray-300">Confirmer le Mot de Passe</label>
+                             <input type="password" id="confirmPassword" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className={inputClass} />
+                         </div>
+                         <button onClick={handleUpdatePassword} disabled={isSaving} className="w-full text-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-black bg-sky-400 hover:bg-sky-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 disabled:opacity-50">
+                             Mettre à Jour le Mot de Passe
+                         </button>
+                     </div>
+                </div>
             </div>
             
             <Modal

@@ -54,6 +54,7 @@ export interface StrategyConditions {
     breakout: boolean;
     volume: boolean;
     safety: boolean;
+    structure?: boolean; // New: For 15m high breakout confirmation
 }
 
 export interface ScannedPair {
@@ -63,7 +64,8 @@ export interface ScannedPair {
     priceDirection: 'up' | 'down' | 'neutral';
     
     // --- Core Strategy Indicators ---
-    price_above_ema50_4h?: boolean; // Master trend filter
+    macro_trend_score?: number; // Suggestion 1: Replaces price_above_ema50_4h
+    price_above_ema50_4h?: boolean; // Kept for the condition dot logic
     rsi_1h?: number; // Safety filter (anti-overheating)
     bollinger_bands_15m?: { upper: number; middle: number; lower: number; width_pct: number; }; // Preparation/Trigger
     is_in_squeeze_15m?: boolean; // Preparation
@@ -101,11 +103,11 @@ export interface BotStatus {
 
 export interface LogEntry {
     timestamp: string;
-    level: 'INFO' | 'WARN' | 'ERROR' | 'TRADE' | 'WEBSOCKET' | 'SCANNER' | 'BINANCE_API' | 'BINANCE_WS' | 'API_CLIENT';
+    level: 'INFO' | 'WARN' | 'ERROR' | 'TRADE' | 'WEBSOCKET' | 'SCANNER' | 'BINANCE_API' | 'BINANCE_WS' | 'API_CLIENT' | 'CIRCUIT_BREAKER';
     message: string;
 }
 
-export const LOG_LEVELS: Readonly<Array<LogEntry['level']>> = ['INFO', 'API_CLIENT', 'WARN', 'ERROR', 'TRADE', 'WEBSOCKET', 'SCANNER', 'BINANCE_API', 'BINANCE_WS'];
+export const LOG_LEVELS: Readonly<Array<LogEntry['level']>> = ['INFO', 'API_CLIENT', 'WARN', 'ERROR', 'TRADE', 'WEBSOCKET', 'SCANNER', 'BINANCE_API', 'BINANCE_WS', 'CIRCUIT_BREAKER'];
 export type LogTab = 'ALL' | LogEntry['level'];
 
 
@@ -114,18 +116,20 @@ export interface BotSettings {
     INITIAL_VIRTUAL_BALANCE: number;
     MAX_OPEN_POSITIONS: number;
     POSITION_SIZE_PCT: number;
-    TAKE_PROFIT_PCT: number;
-    STOP_LOSS_PCT: number;
     SLIPPAGE_PCT: number;
+
+    // Suggestion 3: ATR-Based Trade Management
+    SL_ATR_MULTIPLIER: number;
+    TP_ATR_MULTIPLIER: number;
     USE_TRAILING_STOP_LOSS: boolean;
-    TRAILING_STOP_LOSS_PCT: number;
+    TRAILING_STOP_ATR_MULTIPLIER: number;
     
     // Market Scanner & Strategy Filters
     MIN_VOLUME_USD: number;
     SCANNER_DISCOVERY_INTERVAL_SECONDS: number;
     EXCLUDED_PAIRS: string;
     USE_VOLUME_CONFIRMATION: boolean;
-    USE_MARKET_REGIME_FILTER: boolean;
+    USE_MARKET_REGIME_FILTER: boolean; // Now interpreted as a score threshold
     REQUIRE_STRONG_BUY: boolean;
     LOSS_COOLDOWN_HOURS: number;
     
@@ -134,9 +138,6 @@ export interface BotSettings {
     BINANCE_SECRET_KEY: string;
 
     // --- ADVANCED STRATEGY & RISK MANAGEMENT ---
-    // ATR Stop Loss
-    USE_ATR_STOP_LOSS: boolean;
-    ATR_MULTIPLIER: number;
     
     // Auto Break-even
     USE_AUTO_BREAKEVEN: boolean;
@@ -168,4 +169,11 @@ export interface BotSettings {
     USE_DYNAMIC_PROFILE_SELECTOR: boolean;
     ADX_THRESHOLD_RANGE: number; // e.g., below 20 indicates a ranging market
     ATR_PCT_THRESHOLD_VOLATILE: number; // e.g., above 5% indicates a volatile market
+
+    // --- SUGGESTION 4: GLOBAL CIRCUIT BREAKER ---
+    USE_CIRCUIT_BREAKER: boolean;
+    CIRCUIT_BREAKER_SYMBOL: string;
+    CIRCUIT_BREAKER_THRESHOLD_PCT: number;
+    CIRCUIT_BREAKER_PERIOD_MINUTES: number;
+    CIRCUIT_BREAKER_COOLDOWN_HOURS: number;
 }

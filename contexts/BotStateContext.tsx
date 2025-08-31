@@ -1,3 +1,4 @@
+
 import React, { createContext, useState, useContext, ReactNode, useEffect, useCallback } from 'react';
 import { TradingMode } from '../types';
 import { api } from '../services/mockApi';
@@ -6,6 +7,9 @@ import { logService } from '../services/logService';
 
 interface BotStateContextType {
   isBotRunning: boolean;
+  setIsBotRunning: React.Dispatch<React.SetStateAction<boolean>>;
+  isCircuitBreakerActive: boolean;
+  setIsCircuitBreakerActive: React.Dispatch<React.SetStateAction<boolean>>;
   toggleBot: () => void;
   tradingMode: TradingMode;
   setTradingMode: (mode: TradingMode) => void;
@@ -15,6 +19,7 @@ const BotStateContext = createContext<BotStateContextType | undefined>(undefined
 
 export const BotStateProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [isBotRunning, setIsBotRunning] = useState<boolean>(true);
+  const [isCircuitBreakerActive, setIsCircuitBreakerActive] = useState<boolean>(false);
   const [tradingMode, setTradingModeState] = useState<TradingMode>(TradingMode.VIRTUAL);
   const { isAuthenticated } = useAuth();
 
@@ -22,11 +27,14 @@ export const BotStateProvider: React.FC<{ children: ReactNode }> = ({ children }
   useEffect(() => {
     const fetchInitialState = async () => {
         try {
+            // Updated to fetch global status which includes circuit breaker
             const [statusData, modeData] = await Promise.all([
-                api.getBotRunStatus(),
+                api.getBotRunStatus(), // This should be updated to a global status endpoint
                 api.fetchTradingMode()
             ]);
             setIsBotRunning(statusData.isRunning);
+            // The initial circuit breaker state will be false, updated by WebSocket.
+            setIsCircuitBreakerActive(false); 
             setTradingModeState(modeData.mode);
             logService.log('INFO', `Initial bot state loaded. Running: ${statusData.isRunning}, Mode: ${modeData.mode}`);
         } catch (err) {
@@ -70,7 +78,7 @@ export const BotStateProvider: React.FC<{ children: ReactNode }> = ({ children }
   }, []);
 
   return (
-    <BotStateContext.Provider value={{ isBotRunning, toggleBot, tradingMode, setTradingMode: setTradingMode }}>
+    <BotStateContext.Provider value={{ isBotRunning, setIsBotRunning, isCircuitBreakerActive, setIsCircuitBreakerActive, toggleBot, tradingMode, setTradingMode }}>
       {children}
     </BotStateContext.Provider>
   );

@@ -10,6 +10,7 @@ import { api } from '../../services/mockApi';
 import { scannerStore } from '../../services/scannerStore';
 import { useAppContext } from '../../contexts/AppContext';
 import { useSidebar } from '../../contexts/SidebarContext';
+import { useBotState } from '../../contexts/BotStateContext';
 
 
 const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -17,12 +18,17 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isAuthenticated } = useAuth();
   const { settingsActivityCounter, refreshData, setSettings } = useAppContext();
   const { isCollapsed, isMobileOpen, setMobileOpen } = useSidebar();
+  const { setIsBotRunning, setIsCircuitBreakerActive } = useBotState();
 
   useEffect(() => {
     if (isAuthenticated) {
         logService.log('INFO', "User is authenticated, initializing data and WebSocket...");
         websocketService.onStatusChange(setConnectionStatus);
         websocketService.onDataRefresh(refreshData);
+        websocketService.onBotStatusUpdate(({ isRunning, isCircuitBreakerActive }) => {
+            setIsBotRunning(isRunning);
+            setIsCircuitBreakerActive(isCircuitBreakerActive);
+        });
         websocketService.connect();
         
         const initializeAndFetchData = async () => {
@@ -51,8 +57,9 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       }
       websocketService.onStatusChange(null);
       websocketService.onDataRefresh(null);
+      websocketService.onBotStatusUpdate(null);
     };
-  }, [isAuthenticated, setConnectionStatus, settingsActivityCounter, refreshData, setSettings]);
+  }, [isAuthenticated, setConnectionStatus, settingsActivityCounter, refreshData, setSettings, setIsBotRunning, setIsCircuitBreakerActive]);
 
   return (
     <div className="flex h-screen bg-[#0c0e12] overflow-hidden">
