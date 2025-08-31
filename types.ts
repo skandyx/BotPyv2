@@ -22,6 +22,8 @@ export enum WebSocketStatus {
     DISCONNECTED = "DISCONNECTED",
 }
 
+export type CircuitBreakerStatus = 'NONE' | 'WARNING' | 'HALTED';
+
 export interface Trade {
   id: number;
   mode: TradingMode;
@@ -34,6 +36,7 @@ export interface Trade {
   quantity: number;
   initial_quantity?: number; // For tracking partial sells
   stop_loss: number;
+  initial_stop_loss?: number; // For adaptive R-based trailing stop
   take_profit: number;
   highest_price_since_entry: number; // For Trailing Stop Loss
   entry_time: string;
@@ -170,4 +173,14 @@ export interface BotSettings {
     USE_DYNAMIC_PROFILE_SELECTOR: boolean;
     ADX_THRESHOLD_RANGE: number; // e.g., below 20 indicates a ranging market
     ATR_PCT_THRESHOLD_VOLATILE: number; // e.g., above 5% indicates a volatile market
+    USE_AGGRESSIVE_ENTRY_LOGIC: boolean; // For specific profiles like Volatility Hunter
+    
+    // Adaptive Trailing Stop
+    USE_ADAPTIVE_TRAILING_STOP: boolean;
+    TRAILING_STOP_TIGHTEN_THRESHOLD_R: number; // e.g., 1.5 (for 1.5R)
+    TRAILING_STOP_TIGHTEN_MULTIPLIER_REDUCTION: number; // e.g., 0.5 (to reduce ATR multiplier)
+
+    // Graduated Circuit Breaker
+    CIRCUIT_BREAKER_WARN_THRESHOLD_PCT: number; // e.g. 2.0 for -2%
+    CIRCUIT_BREAKER_HALT_THRESHOLD_PCT: number; // e.g. 4.0 for -4%
 }

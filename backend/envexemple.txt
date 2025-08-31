@@ -18,8 +18,6 @@ MAX_OPEN_POSITIONS=5
 POSITION_SIZE_PCT=2.0
 RISK_REWARD_RATIO=2.0
 STOP_LOSS_PCT=2.0
-USE_TRAILING_STOP_LOSS=true
-TRAILING_STOP_LOSS_PCT=1.5
 SLIPPAGE_PCT=0.05
 
 # --- STRATEGY & SCANNER FILTERS ---
@@ -86,6 +84,22 @@ USE_DYNAMIC_PROFILE_SELECTOR=false
 ADX_THRESHOLD_RANGE=20
 # Le seuil ATR (en % du prix) au-dessus duquel le marché est considéré volatil (profil Chasseur).
 ATR_PCT_THRESHOLD_VOLATILE=5
+# Logique d'entrée agressive (sans confirmation 15m). À n'utiliser que dans les profils.
+USE_AGGRESSIVE_ENTRY_LOGIC=false
+
+# Stop suiveur adaptatif qui se resserre avec les profits. (true/false)
+USE_ADAPTIVE_TRAILING_STOP=true
+# Le multiple de risque (R) à atteindre pour resserrer le stop. (ex: 1.5 pour +1.5R)
+TRAILING_STOP_TIGHTEN_THRESHOLD_R=1.5
+# La valeur de réduction du multiplicateur ATR après resserrement. (ex: 0.5)
+TRAILING_STOP_TIGHTEN_MULTIPLIER_REDUCTION=0.5
+
+# --- GLOBAL SAFETY ---
+# Pourcentage de chute de BTC sur 5 minutes pour déclencher une alerte (réduction de la taille des positions).
+CIRCUIT_BREAKER_WARN_THRESHOLD_PCT=2.0
+# Pourcentage de chute de BTC sur 5 minutes pour déclencher un arrêt complet (clôture de toutes les positions).
+CIRCUIT_BREAKER_HALT_THRESHOLD_PCT=4.0
+
 
 # --- API CREDENTIALS ---
 BINANCE_API_KEY=votre_cle_api_binance

@@ -14,7 +14,7 @@ type ActiveProfile = ProfileName | 'PERSONNALISE';
 const profileTooltips: Record<ProfileName, string> = {
     'Le Sniper': "PRUDENT : Vise la qualité maximale. Filtres très stricts et gestion 'Profit Runner' pour laisser courir les gagnants au maximum.",
     'Le Scalpeur': "ÉQUILIBRÉ : Optimisé pour des gains rapides et constants. Ratio Risque/Récompense faible, idéal pour les marchés en range.",
-    'Le Chasseur de Volatilité': "AGRESSIF : Conçu pour les marchés explosifs. Filtres de sécurité désactivés et gestion du risque adaptée à une forte volatilité."
+    'Le Chasseur de Volatilité': "AGRESSIF : Conçu pour les marchés explosifs. Utilise un mode d'entrée rapide et une gestion du risque adaptée à une forte volatilité."
 };
 
 const settingProfiles: Record<ProfileName, Partial<BotSettings>> = {
@@ -36,9 +36,11 @@ const settingProfiles: Record<ProfileName, Partial<BotSettings>> = {
         BREAKEVEN_TRIGGER_PCT: 1.0,
         ADJUST_BREAKEVEN_FOR_FEES: true,
         TRANSACTION_FEE_PCT: 0.1,
-        USE_TRAILING_STOP_LOSS: true,
-        TRAILING_STOP_LOSS_PCT: 2.5,
-        RISK_REWARD_RATIO: 5.0, // High R/R, rely on trailing
+        USE_ADAPTIVE_TRAILING_STOP: true,
+        TRAILING_STOP_TIGHTEN_THRESHOLD_R: 1.5,
+        TRAILING_STOP_TIGHTEN_MULTIPLIER_REDUCTION: 0.5,
+        RISK_REWARD_RATIO: 5.0,
+        USE_AGGRESSIVE_ENTRY_LOGIC: false,
     },
     'Le Scalpeur': { // EQUILIBRE
         POSITION_SIZE_PCT: 3.0,
@@ -51,21 +53,22 @@ const settingProfiles: Record<ProfileName, Partial<BotSettings>> = {
         PARABOLIC_FILTER_THRESHOLD_PCT: 3.5,
         USE_ATR_STOP_LOSS: false,
         STOP_LOSS_PCT: 2.0,
-        RISK_REWARD_RATIO: 0.75, // Tight R/R for scalping
+        RISK_REWARD_RATIO: 0.75,
         USE_PARTIAL_TAKE_PROFIT: false,
         USE_AUTO_BREAKEVEN: false,
         ADJUST_BREAKEVEN_FOR_FEES: false,
         TRANSACTION_FEE_PCT: 0.1,
-        USE_TRAILING_STOP_LOSS: false,
+        USE_ADAPTIVE_TRAILING_STOP: false,
+        USE_AGGRESSIVE_ENTRY_LOGIC: false,
     },
     'Le Chasseur de Volatilité': { // AGRESSIF
         POSITION_SIZE_PCT: 4.0,
         MAX_OPEN_POSITIONS: 8,
         REQUIRE_STRONG_BUY: false,
-        USE_RSI_SAFETY_FILTER: false, // Filters off
+        USE_RSI_SAFETY_FILTER: false,
         RSI_OVERBOUGHT_THRESHOLD: 80,
-        USE_PARABOLIC_FILTER: false, // Filters off
-        USE_ATR_STOP_LOSS: true, // Wider ATR SL to survive volatility
+        USE_PARABOLIC_FILTER: false,
+        USE_ATR_STOP_LOSS: true,
         ATR_MULTIPLIER: 2.0,
         RISK_REWARD_RATIO: 3.0,
         USE_PARTIAL_TAKE_PROFIT: false,
@@ -73,8 +76,10 @@ const settingProfiles: Record<ProfileName, Partial<BotSettings>> = {
         BREAKEVEN_TRIGGER_PCT: 2.0,
         ADJUST_BREAKEVEN_FOR_FEES: true,
         TRANSACTION_FEE_PCT: 0.1,
-        USE_TRAILING_STOP_LOSS: true,
-        TRAILING_STOP_LOSS_PCT: 1.2, // Tight, aggressive trailing stop
+        USE_ADAPTIVE_TRAILING_STOP: true,
+        TRAILING_STOP_TIGHTEN_THRESHOLD_R: 1.0,
+        TRAILING_STOP_TIGHTEN_MULTIPLIER_REDUCTION: 0.5,
+        USE_AGGRESSIVE_ENTRY_LOGIC: true, // Specific to this profile
     }
 };
 
@@ -116,7 +121,13 @@ const tooltips: Record<string, string> = {
     PARABOLIC_FILTER_THRESHOLD_PCT: "Le pourcentage maximum d'augmentation de prix autorisé sur la période de vérification. Si le prix a augmenté plus que ce seuil, le trade est ignoré pour éviter d'entrer sur un pic insoutenable.",
     USE_DYNAMIC_PROFILE_SELECTOR: "Si activé, le bot choisira automatiquement le meilleur profil (Sniper, Scalpeur, Chasseur) pour chaque trade en fonction des conditions de marché (tendance, volatilité) au moment de l'entrée.",
     ADX_THRESHOLD_RANGE: "Le seuil ADX (15m) en dessous duquel un marché est considéré comme étant en 'range' (faible tendance), déclenchant le profil 'Scalpeur'.",
-    ATR_PCT_THRESHOLD_VOLATILE: "Le seuil de l'ATR (en % du prix) au-dessus duquel un marché est considéré comme hyper-volatil, déclenchant le profil 'Chasseur de Volatilité'."
+    ATR_PCT_THRESHOLD_VOLATILE: "Le seuil de l'ATR (en % du prix) au-dessus duquel un marché est considéré comme hyper-volatil, déclenchant le profil 'Chasseur de Volatilité'.",
+    USE_AGGRESSIVE_ENTRY_LOGIC: "Permet une entrée plus rapide basée uniquement sur le momentum 1m (EMA9 + Volume), sans attendre la confirmation structurelle 15m. Utilisé par le profil 'Chasseur de Volatilité'.",
+    USE_ADAPTIVE_TRAILING_STOP: "Rend le stop suiveur plus intelligent en le resserrant à mesure que le trade devient plus profitable, pour sécuriser les gains de manière plus agressive.",
+    TRAILING_STOP_TIGHTEN_THRESHOLD_R: "Le multiple de risque (R) à atteindre pour que le stop suiveur se resserre. Ex: 1.5 signifie que lorsque le trade atteint +1.5R de profit, le stop se resserre.",
+    TRAILING_STOP_TIGHTEN_MULTIPLIER_REDUCTION: "La valeur de réduction du multiplicateur ATR une fois le seuil de resserrement atteint. Ex: 0.5 réduira un multiplicateur de 1.5 à 1.0.",
+    CIRCUIT_BREAKER_WARN_THRESHOLD_PCT: "Le pourcentage de chute de BTC sur 5 minutes qui déclenche une alerte. Le bot réduira la taille des nouvelles positions.",
+    CIRCUIT_BREAKER_HALT_THRESHOLD_PCT: "Le pourcentage de chute de BTC sur 5 minutes qui déclenche un arrêt complet. Le bot clôturera toutes les positions et arrêtera le trading."
 };
 
 const inputClass = "mt-1 block w-full rounded-md border-[#3e4451] bg-[#0c0e12] shadow-sm focus:border-[#f0b90b] focus:ring-[#f0b90b] sm:text-sm text-white";
@@ -485,9 +496,10 @@ const SettingsPage: React.FC = () => {
                                  <InputField id="PARTIAL_TP_SELL_QTY_PCT" label="Quantité à Vendre (%)" />
                             </div>
                             <hr className="border-gray-700"/>
-                            <ToggleField id="USE_TRAILING_STOP_LOSS" label="Stop Loss Suiveur (Trailing)" />
-                            <div className={`transition-opacity ${settings.USE_TRAILING_STOP_LOSS ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
-                                <InputField id="TRAILING_STOP_LOSS_PCT" label="Distance Trailing Stop (%)" step="0.1" />
+                            <ToggleField id="USE_ADAPTIVE_TRAILING_STOP" label="Stop Loss Suiveur Adaptatif" />
+                            <div className={`grid grid-cols-2 gap-4 transition-opacity ${settings.USE_ADAPTIVE_TRAILING_STOP ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                                <InputField id="TRAILING_STOP_TIGHTEN_THRESHOLD_R" label="Seuil de Resserrage (R)" step="0.1" />
+                                <InputField id="TRAILING_STOP_TIGHTEN_MULTIPLIER_REDUCTION" label="Réduction du Multiplicateur" step="0.1" />
                             </div>
                              <hr className="border-gray-700"/>
                             <ToggleField id="USE_DYNAMIC_POSITION_SIZING" label="Dimensionnement Dynamique de Position" />
@@ -524,8 +536,13 @@ const SettingsPage: React.FC = () => {
 
                  <div className="space-y-6">
                     <div className="bg-[#14181f]/50 border border-[#2b2f38] rounded-lg p-6 shadow-lg">
-                         <h3 className="text-lg font-semibold text-white mb-4">Sécurité</h3>
+                         <h3 className="text-lg font-semibold text-white mb-4">Sécurité & Disjoncteur Global</h3>
                          <div className="space-y-4">
+                             <div className="grid grid-cols-2 gap-4">
+                                <InputField id="CIRCUIT_BREAKER_WARN_THRESHOLD_PCT" label="Seuil d'Alerte Disjoncteur (%)" step="0.1" />
+                                <InputField id="CIRCUIT_BREAKER_HALT_THRESHOLD_PCT" label="Seuil d'Arrêt Disjoncteur (%)" step="0.1" />
+                             </div>
+                             <hr className="border-gray-700 my-4"/>
                              <div>
                                  <label htmlFor="newPassword" className="text-sm font-medium text-gray-300">Nouveau Mot de Passe</label>
                                  <input type="password" id="newPassword" value={newPassword} onChange={e => setNewPassword(e.target.value)} className={inputClass} placeholder="Au moins 8 caractères"/>

@@ -83,43 +83,36 @@ export class ScannerService {
         this.log('SCANNER', `Performing long-term analysis for ${symbol}...`);
 
         // --- Fetch Data ---
-        // These are hard requirements for data availability, so they remain.
         const klines4h = await this.fetchKlinesFromBinance(symbol, '4h', 0, 100);
         if (klines4h.length < 50) return null;
         
         const klines1h = await this.fetchKlinesFromBinance(symbol, '1h', 0, 100);
-        if (klines1h.length < 15) return null;
+        if (klines1h.length < 21) return null;
 
-        // --- 4h ANALYSIS ---
+        // --- 4h ANALYSIS (MACRO TREND) ---
         const closes4h = klines4h.map(k => parseFloat(k[4]));
-        const volumes4h = klines4h.map(k => parseFloat(k[5]));
+        const highs4h = klines4h.map(k => parseFloat(k[2]));
+        const lows4h = klines4h.map(k => parseFloat(k[3]));
         
-        // Master Trend Filter
-        const lastEma50_4h = EMA.calculate({ period: 50, values: closes4h }).pop();
         const lastClose4h = closes4h[closes4h.length - 1];
+        
+        // Condition 1: Price above EMA50
+        const lastEma50_4h = EMA.calculate({ period: 50, values: closes4h }).pop();
         const price_above_ema50_4h = lastClose4h > lastEma50_4h;
         
-        // Nuanced Trend Score Calculation
+        // Condition 2: RSI for Momentum
+        const rsi4h = RSI.calculate({ period: 14, values: closes4h }).pop();
+        const hasMomentum = rsi4h > 50;
+        
+        // Condition 3: ADX for Trend Strength
+        const adxResult = ADX.calculate({ high: highs4h, low: lows4h, close: closes4h, period: 14 }).pop();
+        const isTrending = adxResult && adxResult.adx > 20;
+
+        // Enhanced Trend Score Calculation
         let trend_score = 0;
-        if (price_above_ema50_4h) {
-            const distance_pct = ((lastClose4h - lastEma50_4h) / lastEma50_4h) * 100;
-            // Score from 50 to 100. 5% distance is a perfect score.
-            trend_score = 50 + (distance_pct / 5.0) * 50.0;
-            trend_score = Math.min(100, Math.max(50, trend_score));
-        }
-        
-        // Volume Spike Filter
-        const lastVolume4h = volumes4h[volumes4h.length - 1];
-        const previousVolumes4h = volumes4h.slice(0, -1);
-        const volumeSma20 = SMA.calculate({ period: 20, values: previousVolumes4h }).pop();
-        const volume_spike_4h = lastVolume4h > (volumeSma20 * 2);
-        
-        if (settings.USE_MARKET_REGIME_FILTER && !price_above_ema50_4h) {
-             this.log('SCANNER', `[${symbol}] Fails 4h trend filter.`);
-        }
-        if (!volume_spike_4h) {
-            this.log('SCANNER', `[${symbol}] Fails 4h volume spike filter (Vol: ${lastVolume4h.toFixed(0)}, Avg: ${volumeSma20.toFixed(0)}).`);
-        }
+        if (price_above_ema50_4h) trend_score += 40; // Base score for being in the right direction
+        if (hasMomentum) trend_score += 30;         // Bonus for momentum
+        if (isTrending) trend_score += 30;          // Bonus for trend strength
 
         // --- 1h ANALYSIS (Safety Filter) ---
         const closes1h = klines1h.map(k => parseFloat(k[4]));
@@ -128,14 +121,14 @@ export class ScannerService {
         const analysisData = {
             price_above_ema50_4h,
             trend_score,
-            volume_spike_4h,
             rsi_1h,
+            // Defaults that will be updated by the real-time analyzer
             priceDirection: 'neutral',
-            score: 'HOLD', // Default score, will be updated by RealtimeAnalyzer
-            score_value: 50, // Default value
-            is_in_squeeze_15m: false, // Default value
-            adx_15m: undefined, // Default value
-            atr_pct_15m: undefined, // Default value
+            score: 'HOLD',
+            score_value: 50,
+            is_in_squeeze_15m: false,
+            adx_15m: undefined,
+            atr_pct_15m: undefined,
         };
 
         this.cache.set(symbol, { timestamp: Date.now(), data: analysisData });

@@ -36,7 +36,7 @@ const Header: React.FC = () => {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const { setMobileOpen } = useSidebar();
-  const { isCircuitBreakerActive } = useAppContext();
+  const { circuitBreakerStatus } = useAppContext();
 
 
   useEffect(() => {
@@ -170,9 +170,14 @@ const Header: React.FC = () => {
                 </button>
             </div>
         </div>
-         {isCircuitBreakerActive && (
+         {circuitBreakerStatus === 'HALTED' && (
             <div className="bg-red-600 text-white text-center py-2 font-bold text-sm z-50 animate-pulse">
               DISJONCTEUR ACTIF : Le trading est suspendu en raison de conditions de marché extrêmes.
+            </div>
+          )}
+          {circuitBreakerStatus === 'WARNING' && (
+            <div className="bg-yellow-600 text-black text-center py-2 font-bold text-sm z-50">
+              ALERTE DISJONCTEUR : Le marché est instable. La taille des nouvelles positions est réduite.
             </div>
           )}
       </header>
