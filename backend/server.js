@@ -168,50 +168,74 @@ const loadData = async () => {
         botState.settings = JSON.parse(settingsContent);
     } catch {
         log("WARN", "settings.json not found. Loading from .env defaults.");
+        
+        // Helper for boolean env vars: defaults to `true` unless explicitly 'false'
+        const isNotFalse = (envVar) => process.env[envVar] !== 'false';
+        // Helper for boolean env vars: defaults to `false` unless explicitly 'true'
+        const isTrue = (envVar) => process.env[envVar] === 'true';
+
         botState.settings = {
+            // Core Trading
             INITIAL_VIRTUAL_BALANCE: parseFloat(process.env.INITIAL_VIRTUAL_BALANCE) || 10000,
             MAX_OPEN_POSITIONS: parseInt(process.env.MAX_OPEN_POSITIONS, 10) || 5,
             POSITION_SIZE_PCT: parseFloat(process.env.POSITION_SIZE_PCT) || 2.0,
-            RISK_REWARD_RATIO: parseFloat(process.env.RISK_REWARD_RATIO) || 2.0,
-            STOP_LOSS_PCT: parseFloat(process.env.STOP_LOSS_PCT) || 2.0,
+            RISK_REWARD_RATIO: parseFloat(process.env.RISK_REWARD_RATIO) || 4.0,
+            STOP_LOSS_PCT: parseFloat(process.env.STOP_LOSS_PCT) || 2.0, // Fallback if ATR is disabled
             SLIPPAGE_PCT: parseFloat(process.env.SLIPPAGE_PCT) || 0.05,
-            MIN_VOLUME_USD: parseFloat(process.env.MIN_VOLUME_USD) || 10000000,
+            
+            // Scanner & Filters
+            MIN_VOLUME_USD: parseFloat(process.env.MIN_VOLUME_USD) || 40000000,
             SCANNER_DISCOVERY_INTERVAL_SECONDS: parseInt(process.env.SCANNER_DISCOVERY_INTERVAL_SECONDS, 10) || 3600,
-            EXCLUDED_PAIRS: process.env.EXCLUDED_PAIRS || "USDCUSDT,FDUSDUSDT",
-            USE_VOLUME_CONFIRMATION: process.env.USE_VOLUME_CONFIRMATION === 'true',
-            USE_MARKET_REGIME_FILTER: process.env.USE_MARKET_REGIME_FILTER === 'true',
-            REQUIRE_STRONG_BUY: process.env.REQUIRE_STRONG_BUY === 'true',
+            EXCLUDED_PAIRS: process.env.EXCLUDED_PAIRS || "USDCUSDT,FDUSDUSDT,TUSDUSDT,BUSDUSDT",
             LOSS_COOLDOWN_HOURS: parseInt(process.env.LOSS_COOLDOWN_HOURS, 10) || 4,
+            
+            // API Credentials
             BINANCE_API_KEY: process.env.BINANCE_API_KEY || '',
             BINANCE_SECRET_KEY: process.env.BINANCE_SECRET_KEY || '',
-            // Advanced Defaults
-            USE_ATR_STOP_LOSS: false,
-            ATR_MULTIPLIER: 1.5,
-            USE_AUTO_BREAKEVEN: true,
-            BREAKEVEN_TRIGGER_PCT: parseFloat(process.env.BREAKEVEN_TRIGGER_PCT) || 0.5,
-            ADJUST_BREAKEVEN_FOR_FEES: process.env.ADJUST_BREAKEVEN_FOR_FEES === 'true',
+
+            // --- ADVANCED STRATEGY & RISK MANAGEMENT (Optimal Defaults) ---
+            
+            // ATR Stop Loss (Enabled by default)
+            USE_ATR_STOP_LOSS: isNotFalse('USE_ATR_STOP_LOSS'),
+            ATR_MULTIPLIER: parseFloat(process.env.ATR_MULTIPLIER) || 1.5,
+            
+            // Auto Break-even (Enabled by default)
+            USE_AUTO_BREAKEVEN: isNotFalse('USE_AUTO_BREAKEVEN'),
+            BREAKEVEN_TRIGGER_PCT: parseFloat(process.env.BREAKEVEN_TRIGGER_PCT) || 1.0,
+            ADJUST_BREAKEVEN_FOR_FEES: isNotFalse('ADJUST_BREAKEVEN_FOR_FEES'),
             TRANSACTION_FEE_PCT: parseFloat(process.env.TRANSACTION_FEE_PCT) || 0.1,
-            USE_RSI_SAFETY_FILTER: true,
-            RSI_OVERBOUGHT_THRESHOLD: 75,
-            USE_PARTIAL_TAKE_PROFIT: false,
-            PARTIAL_TP_TRIGGER_PCT: 1.5,
-            PARTIAL_TP_SELL_QTY_PCT: 50,
-            USE_DYNAMIC_POSITION_SIZING: false,
-            STRONG_BUY_POSITION_SIZE_PCT: 3.0,
-            USE_PARABOLIC_FILTER: true,
-            PARABOLIC_FILTER_PERIOD_MINUTES: 5,
-            PARABOLIC_FILTER_THRESHOLD_PCT: 3.0,
-            // Adaptive Behavior
-            USE_DYNAMIC_PROFILE_SELECTOR: process.env.USE_DYNAMIC_PROFILE_SELECTOR === 'true',
+
+            // Safety Filters (Enabled by default)
+            USE_RSI_SAFETY_FILTER: isNotFalse('USE_RSI_SAFETY_FILTER'),
+            RSI_OVERBOUGHT_THRESHOLD: parseInt(process.env.RSI_OVERBOUGHT_THRESHOLD, 10) || 75,
+            USE_PARABOLIC_FILTER: isNotFalse('USE_PARABOLIC_FILTER'),
+            PARABOLIC_FILTER_PERIOD_MINUTES: parseInt(process.env.PARABOLIC_FILTER_PERIOD_MINUTES, 10) || 5,
+            PARABOLIC_FILTER_THRESHOLD_PCT: parseFloat(process.env.PARABOLIC_FILTER_THRESHOLD_PCT) || 2.5,
+            USE_VOLUME_CONFIRMATION: isNotFalse('USE_VOLUME_CONFIRMATION'),
+            USE_MARKET_REGIME_FILTER: isNotFalse('USE_MARKET_REGIME_FILTER'),
+
+            // Optional Features (Disabled by default for simplicity)
+            USE_PARTIAL_TAKE_PROFIT: isTrue('USE_PARTIAL_TAKE_PROFIT'),
+            PARTIAL_TP_TRIGGER_PCT: parseFloat(process.env.PARTIAL_TP_TRIGGER_PCT) || 0.8,
+            PARTIAL_TP_SELL_QTY_PCT: parseInt(process.env.PARTIAL_TP_SELL_QTY_PCT, 10) || 50,
+            USE_DYNAMIC_POSITION_SIZING: isTrue('USE_DYNAMIC_POSITION_SIZING'),
+            STRONG_BUY_POSITION_SIZE_PCT: parseFloat(process.env.STRONG_BUY_POSITION_SIZE_PCT) || 3.0,
+            REQUIRE_STRONG_BUY: isTrue('REQUIRE_STRONG_BUY'),
+
+            // --- ADAPTIVE BEHAVIOR (Enabled by default) ---
+            USE_DYNAMIC_PROFILE_SELECTOR: isNotFalse('USE_DYNAMIC_PROFILE_SELECTOR'),
             ADX_THRESHOLD_RANGE: parseInt(process.env.ADX_THRESHOLD_RANGE, 10) || 20,
-            ATR_PCT_THRESHOLD_VOLATILE: parseFloat(process.env.ATR_PCT_THRESHOLD_VOLATILE) || 5,
-            USE_AGGRESSIVE_ENTRY_LOGIC: process.env.USE_AGGRESSIVE_ENTRY_LOGIC === 'true',
-            USE_ADAPTIVE_TRAILING_STOP: process.env.USE_ADAPTIVE_TRAILING_STOP === 'true',
-            TRAILING_STOP_TIGHTEN_THRESHOLD_R: parseFloat(process.env.TRAILING_STOP_TIGHTEN_THRESHOLD_R) || 1.5,
-            TRAILING_STOP_TIGHTEN_MULTIPLIER_REDUCTION: parseFloat(process.env.TRAILING_STOP_TIGHTEN_MULTIPLIER_REDUCTION) || 0.5,
+            ATR_PCT_THRESHOLD_VOLATILE: parseFloat(process.env.ATR_PCT_THRESHOLD_VOLATILE) || 5.0,
+            USE_AGGRESSIVE_ENTRY_LOGIC: isTrue('USE_AGGRESSIVE_ENTRY_LOGIC'), // Profile-specific
+            
+            // Adaptive Trailing Stop (Enabled by default)
+            USE_ADAPTIVE_TRAILING_STOP: isNotFalse('USE_ADAPTIVE_TRAILING_STOP'),
+            TRAILING_STOP_TIGHTEN_THRESHOLD_R: parseFloat(process.env.TRAILING_STOP_TIGHTEN_THRESHOLD_R) || 1.0,
+            TRAILING_STOP_TIGHTEN_MULTIPLIER_REDUCTION: parseFloat(process.env.TRAILING_STOP_TIGHTEN_MULTIPLIER_REDUCTION) || 0.3,
+
             // Graduated Circuit Breaker
-            CIRCUIT_BREAKER_WARN_THRESHOLD_PCT: parseFloat(process.env.CIRCUIT_BREAKER_WARN_THRESHOLD_PCT) || 2.0,
-            CIRCUIT_BREAKER_HALT_THRESHOLD_PCT: parseFloat(process.env.CIRCUIT_BREAKER_HALT_THRESHOLD_PCT) || 4.0,
+            CIRCUIT_BREAKER_WARN_THRESHOLD_PCT: parseFloat(process.env.CIRCUIT_BREAKER_WARN_THRESHOLD_PCT) || 1.5,
+            CIRCUIT_BREAKER_HALT_THRESHOLD_PCT: parseFloat(process.env.CIRCUIT_BREAKER_HALT_THRESHOLD_PCT) || 2.5,
         };
         await saveData('settings');
     }
