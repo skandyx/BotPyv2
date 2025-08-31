@@ -1,15 +1,11 @@
-
 import React, { createContext, useState, useContext, ReactNode, useEffect, useCallback } from 'react';
-import { TradingMode, CircuitBreakerStatus } from '../types';
+import { TradingMode } from '../types';
 import { api } from '../services/mockApi';
 import { useAuth } from './AuthContext';
 import { logService } from '../services/logService';
 
 interface BotStateContextType {
   isBotRunning: boolean;
-  setIsBotRunning: React.Dispatch<React.SetStateAction<boolean>>;
-  circuitBreakerStatus: CircuitBreakerStatus;
-  setCircuitBreakerStatus: React.Dispatch<React.SetStateAction<CircuitBreakerStatus>>;
   toggleBot: () => void;
   tradingMode: TradingMode;
   setTradingMode: (mode: TradingMode) => void;
@@ -19,21 +15,18 @@ const BotStateContext = createContext<BotStateContextType | undefined>(undefined
 
 export const BotStateProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [isBotRunning, setIsBotRunning] = useState<boolean>(true);
-  const [circuitBreakerStatus, setCircuitBreakerStatus] = useState<CircuitBreakerStatus>(CircuitBreakerStatus.INACTIVE);
   const [tradingMode, setTradingModeState] = useState<TradingMode>(TradingMode.VIRTUAL);
   const { isAuthenticated } = useAuth();
 
+  // Effect to fetch initial bot state (run status and trading mode) when authenticated
   useEffect(() => {
     const fetchInitialState = async () => {
         try {
-            // This endpoint will be updated in the backend to return the full status
             const [statusData, modeData] = await Promise.all([
                 api.getBotRunStatus(),
                 api.fetchTradingMode()
             ]);
             setIsBotRunning(statusData.isRunning);
-            // The initial circuit breaker state will be INACTIVE, updated by WebSocket.
-            setCircuitBreakerStatus(CircuitBreakerStatus.INACTIVE); 
             setTradingModeState(modeData.mode);
             logService.log('INFO', `Initial bot state loaded. Running: ${statusData.isRunning}, Mode: ${modeData.mode}`);
         } catch (err) {
@@ -61,6 +54,7 @@ export const BotStateProvider: React.FC<{ children: ReactNode }> = ({ children }
     }
   }, [isBotRunning]);
 
+  // This function now synchronizes with the backend
   const setTradingMode = useCallback(async (mode: TradingMode) => {
     try {
         logService.log('INFO', `Attempting to switch mode to ${mode}...`);
@@ -76,7 +70,7 @@ export const BotStateProvider: React.FC<{ children: ReactNode }> = ({ children }
   }, []);
 
   return (
-    <BotStateContext.Provider value={{ isBotRunning, setIsBotRunning, circuitBreakerStatus, setCircuitBreakerStatus, toggleBot, tradingMode, setTradingMode }}>
+    <BotStateContext.Provider value={{ isBotRunning, toggleBot, tradingMode, setTradingMode: setTradingMode }}>
       {children}
     </BotStateContext.Provider>
   );

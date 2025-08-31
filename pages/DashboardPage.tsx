@@ -20,20 +20,15 @@ const formatPrice = (price: number | undefined | null): string => {
     return price.toFixed(8);
 };
 
-const getScoreValueBadgeClass = (scoreValue: number | undefined) => {
-    if (scoreValue === undefined) return 'bg-gray-700 text-gray-200';
-    if (scoreValue >= 99) return 'bg-green-600 text-green-100'; // 5/5
-    if (scoreValue >= 80) return 'bg-sky-600 text-sky-100'; // 4/5
-    if (scoreValue >= 60) return 'bg-yellow-600 text-yellow-100'; // 3/5
-    return 'bg-gray-700 text-gray-200'; // 0-2/5
-};
-
-const getTrendScoreColorClass = (score: number | undefined) => {
-    if (score === undefined) return 'text-gray-500';
-    if (score > 75) return 'text-green-400';
-    if (score > 50) return 'text-sky-400';
-    if (score > 25) return 'text-yellow-400';
-    return 'text-red-400';
+const getScoreBadgeClass = (score: ScannedPair['score'] | undefined) => {
+    if (!score) return 'bg-gray-700 text-gray-200';
+    switch (score) {
+        case 'STRONG BUY': return 'bg-green-600 text-green-100';
+        case 'BUY': return 'bg-green-800 text-green-200';
+        case 'HOLD': return 'bg-gray-700 text-gray-200';
+        case 'COOLDOWN': return 'bg-blue-800 text-blue-200';
+        default: return 'bg-gray-700 text-gray-200';
+    }
 };
 
 const ActivePositionsTable: React.FC<{ positions: Trade[], onManualClose: (trade: Trade) => void, onSymbolClick: (symbol: string) => void }> = ({ positions, onManualClose, onSymbolClick }) => {
@@ -53,7 +48,7 @@ const ActivePositionsTable: React.FC<{ positions: Trade[], onManualClose: (trade
             <table className="min-w-full divide-y divide-[#2b2f38]">
                 <thead className="bg-[#14181f]">
                     <tr>
-                        {['Symbole', 'Côté', 'Prix d\'Entrée', 'Prix Actuel', 'Quantité', 'Stop Loss', 'Take Profit', 'PnL ($)', 'PnL %', 'Score Global', 'Score Tendance 4h', 'RSI 1h Entrée'].map(header => (
+                        {['Symbole', 'Côté', 'Prix d\'Entrée', 'Prix Actuel', 'Quantité', 'Stop Loss', 'Take Profit', 'PnL ($)', 'PnL %', 'Score Entrée', 'Tendance 4h (EMA50)', 'RSI 1h Entrée'].map(header => (
                             <th key={header} scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">{header}</th>
                         ))}
                         <th scope="col" className="relative px-3 lg:px-6 py-3">
@@ -81,12 +76,12 @@ const ActivePositionsTable: React.FC<{ positions: Trade[], onManualClose: (trade
                                 <td className={`px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-medium ${getPnlClass(pos.pnl)}`}>${pos.pnl?.toFixed(2) || '0.00'}</td>
                                 <td className={`px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-medium ${getPnlClass(pos.pnl_pct)}`}>{pos.pnl_pct?.toFixed(2) || 'N/A'}%</td>
                                 <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm">
-                                    <span className={`px-2.5 py-1 text-xs font-semibold rounded-full w-12 text-center ${getScoreValueBadgeClass(snapshot?.score_value)}`}>
-                                        {snapshot?.score_value?.toFixed(0) ?? 'N/A'}
+                                    <span className={`px-2.5 py-1 text-xs font-semibold rounded-full ${getScoreBadgeClass(snapshot?.score)}`}>
+                                        {snapshot?.score || 'N/A'}
                                     </span>
                                 </td>
-                                <td className={`px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold ${getTrendScoreColorClass(snapshot?.macro_trend_score)}`}>
-                                    {snapshot?.macro_trend_score?.toFixed(0) ?? 'N/A'}
+                                <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">
+                                     {snapshot?.price_above_ema50_4h === true ? <span className="text-green-400">▲ HAUSSIER</span> : (snapshot?.price_above_ema50_4h === false ? <span className="text-red-400">▼ BAISSIER</span> : <span className="text-gray-500">-</span>)}
                                 </td>
                                 <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-300">{snapshot?.rsi_1h?.toFixed(1) || 'N/A'}</td>
                                 <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-right text-sm font-medium">

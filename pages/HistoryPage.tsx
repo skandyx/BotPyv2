@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '../services/mockApi';
 import { Trade, OrderSide, TradingMode, ScannedPair } from '../types';
@@ -33,20 +32,15 @@ const dateTimeFormatOptions: Intl.DateTimeFormatOptions = {
     hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
 };
 
-const getScoreValueBadgeClass = (scoreValue: number | undefined) => {
-    if (scoreValue === undefined) return 'bg-gray-700 text-gray-200';
-    if (scoreValue >= 99) return 'bg-green-600 text-green-100'; // 5/5
-    if (scoreValue >= 80) return 'bg-sky-600 text-sky-100'; // 4/5
-    if (scoreValue >= 60) return 'bg-yellow-600 text-yellow-100'; // 3/5
-    return 'bg-gray-700 text-gray-200'; // 0-2/5
-};
-
-const getTrendScoreColorClass = (score: number | undefined) => {
-    if (score === undefined) return 'text-gray-500';
-    if (score > 75) return 'text-green-400';
-    if (score > 50) return 'text-sky-400';
-    if (score > 25) return 'text-yellow-400';
-    return 'text-red-400';
+const getScoreBadgeClass = (score: ScannedPair['score'] | undefined) => {
+    if (!score) return 'bg-gray-700 text-gray-200';
+    switch (score) {
+        case 'STRONG BUY': return 'bg-green-600 text-green-100';
+        case 'BUY': return 'bg-green-800 text-green-200';
+        case 'HOLD': return 'bg-gray-700 text-gray-200';
+        case 'COOLDOWN': return 'bg-blue-800 text-blue-200';
+        default: return 'bg-gray-700 text-gray-200';
+    }
 };
 
 // --- SUB-COMPONENTS ---
@@ -152,7 +146,7 @@ const HistoryPage: React.FC = () => {
         return;
     }
 
-    const headers = ['ID', 'Symbole', 'Côté', 'Mode', 'Heure d\'Entrée', 'Heure de Sortie', 'Prix d\'Entrée', 'Prix de Sortie', 'Stop Loss', 'Take Profit', 'Quantité', 'PnL ($)', 'PnL %', 'Score Global Entrée', 'Score Tendance 4h', 'RSI 1h Entrée'];
+    const headers = ['ID', 'Symbole', 'Côté', 'Mode', 'Heure d\'Entrée', 'Heure de Sortie', 'Prix d\'Entrée', 'Prix de Sortie', 'Stop Loss', 'Take Profit', 'Quantité', 'PnL ($)', 'PnL %', 'Score Entrée', 'Tendance 4h (EMA50)', 'RSI 1h Entrée'];
     
     const rows = filteredAndSortedTrades.map(trade => [
         trade.id,
@@ -168,8 +162,8 @@ const HistoryPage: React.FC = () => {
         trade.quantity,
         trade.pnl?.toFixed(4) || 'N/A',
         trade.pnl_pct?.toFixed(2) || 'N/A',
-        trade.entry_snapshot?.score_value?.toFixed(0) || 'N/A',
-        trade.entry_snapshot?.macro_trend_score?.toFixed(0) || 'N/A',
+        trade.entry_snapshot?.score || 'N/A',
+        trade.entry_snapshot?.price_above_ema50_4h ? 'HAUSSIER' : 'BAISSIER',
         trade.entry_snapshot?.rsi_1h?.toFixed(2) || 'N/A'
     ]);
 
@@ -285,8 +279,8 @@ const HistoryPage: React.FC = () => {
                     <tr>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="symbol">Symbole</SortableHeader>
                         <th scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Côté</th>
-                        <th scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Score Global</th>
-                        <th scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Score Tendance 4h</th>
+                        <th scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Score Entrée</th>
+                        <th scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Tendance 4h (EMA50)</th>
                         <th scope="col" className="px-3 lg:px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">RSI 1h Entrée</th>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="entry_time">Heure d'Entrée</SortableHeader>
                         <SortableHeader sortConfig={sortConfig} requestSort={requestSort} sortKey="exit_time">Heure de Sortie</SortableHeader>
@@ -308,12 +302,12 @@ const HistoryPage: React.FC = () => {
                             <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-medium text-white">{trade.symbol}</td>
                             <td className={`px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-bold ${getSideClass(trade.side)}`}>{trade.side}</td>
                             <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm">
-                                <span className={`px-2.5 py-1 text-xs font-semibold rounded-full w-12 text-center ${getScoreValueBadgeClass(trade.entry_snapshot?.score_value)}`}>
-                                    {trade.entry_snapshot?.score_value?.toFixed(0) ?? 'N/A'}
+                                <span className={`px-2.5 py-1 text-xs font-semibold rounded-full ${getScoreBadgeClass(trade.entry_snapshot?.score)}`}>
+                                    {trade.entry_snapshot?.score || 'N/A'}
                                 </span>
                             </td>
-                            <td className={`px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold ${getTrendScoreColorClass(trade.entry_snapshot?.macro_trend_score)}`}>
-                                {trade.entry_snapshot?.macro_trend_score?.toFixed(0) ?? 'N/A'}
+                            <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm font-semibold">
+                                {trade.entry_snapshot?.price_above_ema50_4h === true ? <span className="text-green-400">▲ HAUSSIER</span> : (trade.entry_snapshot?.price_above_ema50_4h === false ? <span className="text-red-400">▼ BAISSIER</span> : <span className="text-gray-500">-</span>)}
                             </td>
                             <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-300">{trade.entry_snapshot?.rsi_1h?.toFixed(1) || 'N/A'}</td>
                             <td className="px-3 lg:px-6 py-4 whitespace-nowrap text-sm text-gray-400">{new Date(trade.entry_time).toLocaleString(undefined, dateTimeFormatOptions)}</td>

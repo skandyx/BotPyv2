@@ -1,7 +1,8 @@
 
-import { WebSocketStatus, LogEntry, CircuitBreakerStatus } from '../types';
+import { WebSocketStatus, LogEntry } from '../types';
 import { logService } from './logService';
 import { priceStore } from './priceStore';
+import { positionService } from './positionService';
 import { scannerStore } from './scannerStore';
 
 export interface PriceUpdate {
@@ -11,12 +12,10 @@ export interface PriceUpdate {
 
 type StatusChangeCallback = (status: WebSocketStatus) => void;
 type DataRefreshCallback = () => void;
-type BotStatusUpdateCallback = (status: { isRunning: boolean; circuitBreakerStatus: CircuitBreakerStatus }) => void;
 
 let socket: WebSocket | null = null;
 let statusCallback: StatusChangeCallback | null = null;
 let dataRefreshCallback: DataRefreshCallback | null = null;
-let botStatusCallback: BotStatusUpdateCallback | null = null;
 let reconnectTimeout: number | null = null;
 let isManualDisconnect = false;
 
@@ -43,6 +42,7 @@ const connect = () => {
         logService.log('WEBSOCKET', 'Successfully connected to backend.');
         statusCallback?.(WebSocketStatus.CONNECTED);
 
+        // Request the full, current state of the scanner from the backend
         if (socket && socket.readyState === WebSocket.OPEN) {
              socket.send(JSON.stringify({ type: 'GET_FULL_SCANNER_LIST' }));
         }
@@ -67,8 +67,7 @@ const connect = () => {
                     dataRefreshCallback?.();
                     break;
                 case 'BOT_STATUS_UPDATE':
-                    logService.log('INFO', `Bot status update received: ${JSON.stringify(message.payload)}`);
-                    botStatusCallback?.(message.payload);
+                    logService.log('INFO', `Bot running state is now: ${message.payload.isRunning}`);
                     break;
                 case 'LOG_ENTRY':
                     const logPayload = message.payload as LogEntry;
@@ -117,8 +116,5 @@ export const websocketService = {
     },
     onDataRefresh: (callback: DataRefreshCallback | null) => {
         dataRefreshCallback = callback;
-    },
-    onBotStatusUpdate: (callback: BotStatusUpdateCallback | null) => {
-        botStatusCallback = callback;
-    },
+    }
 };

@@ -7,7 +7,7 @@ import { useWebSocket } from '../../contexts/WebSocketContext';
 import { useSidebar } from '../../contexts/SidebarContext';
 import ToggleSwitch from '../common/ToggleSwitch';
 import Modal from '../common/Modal';
-import { TradingMode, WebSocketStatus, CircuitBreakerStatus } from '../../types';
+import { TradingMode, WebSocketStatus } from '../../types';
 import { LogoutIcon, ClockIcon, MenuIcon } from '../icons/Icons';
 
 const getTitleFromPath = (path: string): string => {
@@ -24,7 +24,7 @@ const getTitleFromPath = (path: string): string => {
 
 
 const Header: React.FC = () => {
-  const { tradingMode, setTradingMode, isBotRunning, toggleBot, circuitBreakerStatus } = useBotState();
+  const { tradingMode, setTradingMode, isBotRunning, toggleBot } = useBotState();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [pendingMode, setPendingMode] = useState<TradingMode | null>(null);
   const { logout } = useAuth();
@@ -103,29 +103,9 @@ const Header: React.FC = () => {
     }
   };
   
-  const renderCircuitBreakerBanner = () => {
-    switch (circuitBreakerStatus) {
-      case CircuitBreakerStatus.ALERT:
-        return (
-          <div className="bg-yellow-500 text-black text-center py-1 text-sm font-bold animate-pulse">
-            ⚠️ DISJONCTEUR (ALERTE) - RISQUE ÉLEVÉ - TAILLE DE POSITION RÉDUITE ⚠️
-          </div>
-        );
-      case CircuitBreakerStatus.ACTIVE:
-        return (
-          <div className="bg-red-600 text-white text-center py-1 text-sm font-bold animate-pulse">
-            🛑 DISJONCTEUR GLOBAL ACTIF - TRADING SUSPENDU ET POSITIONS CLÔTURÉES 🛑
-          </div>
-        );
-      default:
-        return null;
-    }
-  };
-
   return (
     <>
       <header className="bg-[#0c0e12]/80 backdrop-blur-sm sticky top-0 z-30 md:z-40">
-        {renderCircuitBreakerBanner()}
         <div className="flex items-center justify-between h-16 px-4 sm:px-6 lg:px-8 border-b border-[#1a1d26]">
             <div className="flex items-center">
                 <button
@@ -168,7 +148,7 @@ const Header: React.FC = () => {
                 <div ref={dropdownRef} className="relative">
                     <button onClick={() => setIsDropdownOpen(!isDropdownOpen)} className="flex items-center justify-center px-2 sm:px-3 py-1.5 border border-[#3e4451] rounded-md text-sm font-medium text-white hover:bg-[#14181f] transition-colors">
                         {getModeLabel(tradingMode)}
-                        <svg className="hidden sm:block -mr-1 ml-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                        <svg className="hidden sm:block -mr-1 ml-2 h-5 w-5" xmlns="http://www.w.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                             <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
                         </svg>
                     </button>
