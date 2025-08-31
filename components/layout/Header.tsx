@@ -7,7 +7,7 @@ import { useWebSocket } from '../../contexts/WebSocketContext';
 import { useSidebar } from '../../contexts/SidebarContext';
 import ToggleSwitch from '../common/ToggleSwitch';
 import Modal from '../common/Modal';
-import { TradingMode, WebSocketStatus } from '../../types';
+import { TradingMode, WebSocketStatus, CircuitBreakerStatus } from '../../types';
 import { LogoutIcon, ClockIcon, MenuIcon } from '../icons/Icons';
 
 const getTitleFromPath = (path: string): string => {
@@ -24,7 +24,7 @@ const getTitleFromPath = (path: string): string => {
 
 
 const Header: React.FC = () => {
-  const { tradingMode, setTradingMode, isBotRunning, toggleBot, isCircuitBreakerActive } = useBotState();
+  const { tradingMode, setTradingMode, isBotRunning, toggleBot, circuitBreakerStatus } = useBotState();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [pendingMode, setPendingMode] = useState<TradingMode | null>(null);
   const { logout } = useAuth();
@@ -103,14 +103,29 @@ const Header: React.FC = () => {
     }
   };
   
+  const renderCircuitBreakerBanner = () => {
+    switch (circuitBreakerStatus) {
+      case CircuitBreakerStatus.ALERT:
+        return (
+          <div className="bg-yellow-500 text-black text-center py-1 text-sm font-bold animate-pulse">
+            ⚠️ DISJONCTEUR (ALERTE) - RISQUE ÉLEVÉ - TAILLE DE POSITION RÉDUITE ⚠️
+          </div>
+        );
+      case CircuitBreakerStatus.ACTIVE:
+        return (
+          <div className="bg-red-600 text-white text-center py-1 text-sm font-bold animate-pulse">
+            🛑 DISJONCTEUR GLOBAL ACTIF - TRADING SUSPENDU ET POSITIONS CLÔTURÉES 🛑
+          </div>
+        );
+      default:
+        return null;
+    }
+  };
+
   return (
     <>
       <header className="bg-[#0c0e12]/80 backdrop-blur-sm sticky top-0 z-30 md:z-40">
-        {isCircuitBreakerActive && (
-            <div className="bg-red-600 text-white text-center py-1 text-sm font-bold animate-pulse">
-                DISJONCTEUR GLOBAL ACTIF - TRADING SUSPENDU
-            </div>
-        )}
+        {renderCircuitBreakerBanner()}
         <div className="flex items-center justify-between h-16 px-4 sm:px-6 lg:px-8 border-b border-[#1a1d26]">
             <div className="flex items-center">
                 <button

@@ -11,23 +11,24 @@ import { scannerStore } from '../../services/scannerStore';
 import { useAppContext } from '../../contexts/AppContext';
 import { useSidebar } from '../../contexts/SidebarContext';
 import { useBotState } from '../../contexts/BotStateContext';
+import { CircuitBreakerStatus } from '../../types';
 
 
 const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { setConnectionStatus } = useWebSocket();
   const { isAuthenticated } = useAuth();
   const { settingsActivityCounter, refreshData, setSettings } = useAppContext();
-  const { isCollapsed, isMobileOpen, setMobileOpen } = useSidebar();
-  const { setIsBotRunning, setIsCircuitBreakerActive } = useBotState();
+  const { isMobileOpen, setMobileOpen } = useSidebar();
+  const { setIsBotRunning, setCircuitBreakerStatus } = useBotState();
 
   useEffect(() => {
     if (isAuthenticated) {
         logService.log('INFO', "User is authenticated, initializing data and WebSocket...");
         websocketService.onStatusChange(setConnectionStatus);
         websocketService.onDataRefresh(refreshData);
-        websocketService.onBotStatusUpdate(({ isRunning, isCircuitBreakerActive }) => {
+        websocketService.onBotStatusUpdate(({ isRunning, circuitBreakerStatus }) => {
             setIsBotRunning(isRunning);
-            setIsCircuitBreakerActive(isCircuitBreakerActive);
+            setCircuitBreakerStatus(circuitBreakerStatus || CircuitBreakerStatus.INACTIVE);
         });
         websocketService.connect();
         
@@ -39,8 +40,6 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
                 scannerStore.updateSettings(settingsData);
                 scannerStore.initialize();
 
-                // The initial scanner list will now be populated via WebSocket request
-                // after the connection is established. This is more reliable.
             } catch (error) {
                 logService.log('ERROR', `Failed to initialize app data: ${error}`);
             }
@@ -59,7 +58,7 @@ const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
       websocketService.onDataRefresh(null);
       websocketService.onBotStatusUpdate(null);
     };
-  }, [isAuthenticated, setConnectionStatus, settingsActivityCounter, refreshData, setSettings, setIsBotRunning, setIsCircuitBreakerActive]);
+  }, [isAuthenticated, setConnectionStatus, settingsActivityCounter, refreshData, setSettings, setIsBotRunning, setCircuitBreakerStatus]);
 
   return (
     <div className="flex h-screen bg-[#0c0e12] overflow-hidden">

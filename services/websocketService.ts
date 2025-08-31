@@ -1,8 +1,7 @@
 
-import { WebSocketStatus, LogEntry } from '../types';
+import { WebSocketStatus, LogEntry, CircuitBreakerStatus } from '../types';
 import { logService } from './logService';
 import { priceStore } from './priceStore';
-import { positionService } from './positionService';
 import { scannerStore } from './scannerStore';
 
 export interface PriceUpdate {
@@ -12,7 +11,7 @@ export interface PriceUpdate {
 
 type StatusChangeCallback = (status: WebSocketStatus) => void;
 type DataRefreshCallback = () => void;
-type BotStatusUpdateCallback = (status: { isRunning: boolean; isCircuitBreakerActive: boolean }) => void;
+type BotStatusUpdateCallback = (status: { isRunning: boolean; circuitBreakerStatus: CircuitBreakerStatus }) => void;
 
 let socket: WebSocket | null = null;
 let statusCallback: StatusChangeCallback | null = null;
@@ -44,7 +43,6 @@ const connect = () => {
         logService.log('WEBSOCKET', 'Successfully connected to backend.');
         statusCallback?.(WebSocketStatus.CONNECTED);
 
-        // Request the full, current state of the scanner from the backend
         if (socket && socket.readyState === WebSocket.OPEN) {
              socket.send(JSON.stringify({ type: 'GET_FULL_SCANNER_LIST' }));
         }
