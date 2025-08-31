@@ -1,5 +1,6 @@
 
 
+
 import express from 'express';
 import bodyParser from 'body-parser';
 import cors from 'cors';
@@ -7,7 +8,6 @@ import fs from 'fs/promises';
 import path from 'path';
 import dotenv from 'dotenv';
 import session from 'express-session';
-import crypto from 'crypto';
 import { WebSocketServer } from 'ws';
 import WebSocket from 'ws';
 import http from 'http';
@@ -74,41 +74,7 @@ const log = (level, message) => {
 const DATA_DIR = path.join(process.cwd(), 'data');
 const SETTINGS_FILE_PATH = path.join(DATA_DIR, 'settings.json');
 const STATE_FILE_PATH = path.join(DATA_DIR, 'state.json');
-const AUTH_FILE_PATH = path.join(DATA_DIR, 'auth.json');
 const ensureDataDir = async () => { try { await fs.access(DATA_DIR); } catch { await fs.mkdir(DATA_DIR); } };
-
-// --- DEFINITIVE AUTH LOGIC BLOCK (REWRITTEN FOR ROBUSTNESS) ---
-const HASH_OPTIONS = { keylen: 64, N: 16384, r: 8, p: 1 }; // scrypt options
-
-const hashPassword = (password) => {
-    return new Promise((resolve, reject) => {
-        const salt = crypto.randomBytes(16);
-        crypto.scrypt(password, salt, HASH_OPTIONS.keylen, HASH_OPTIONS, (err, derivedKey) => {
-            if (err) reject(err);
-            resolve(`${salt.toString('hex')}:${derivedKey.toString('hex')}`);
-        });
-    });
-};
-
-const verifyPassword = (password, storedHash) => {
-    return new Promise((resolve, reject) => {
-        const [saltHex, keyHex] = storedHash.split(':');
-        if (!saltHex || !keyHex) {
-            return resolve(false); // Catches malformed hash
-        }
-        const salt = Buffer.from(saltHex, 'hex');
-        const storedKey = Buffer.from(keyHex, 'hex');
-
-        crypto.scrypt(password, salt, HASH_OPTIONS.keylen, HASH_OPTIONS, (err, derivedKey) => {
-            if (err) reject(err);
-            if (storedKey.length !== derivedKey.length) {
-                return resolve(false); // Should never happen with same keylen
-            }
-            resolve(crypto.timingSafeEqual(storedKey, derivedKey));
-        });
-    });
-};
-// --- END OF DEFINITIVE AUTH LOGIC BLOCK ---
 
 const loadData = async () => {
     await ensureDataDir();
@@ -147,34 +113,13 @@ const loadData = async () => {
         await saveData('state');
     }
 
-    // --- Self-Healing Auth Logic ---
+    // --- Simplified Auth Check ---
     const pwFromEnv = process.env.APP_PASSWORD;
     if (!pwFromEnv) {
-        log('ERROR', 'CRITICAL: APP_PASSWORD is not set in your .env file. Please configure it.');
+        log('ERROR', 'CRITICAL: APP_PASSWORD is not set in your .env file. Please configure it and restart.');
         process.exit(1);
     }
-
-    let existingHash = null;
-    try {
-        existingHash = JSON.parse(await fs.readFile(AUTH_FILE_PATH, 'utf-8')).passwordHash;
-    } catch {
-        log("WARN", "auth.json not found. A new one will be created from .env.");
-    }
-    
-    let isHashValid = false;
-    if(existingHash) {
-        isHashValid = await verifyPassword(pwFromEnv, existingHash).catch(() => false);
-    }
-
-    if (isHashValid) {
-        log('INFO', 'Loaded existing password hash from auth.json.');
-        botState.passwordHash = existingHash;
-    } else {
-        log('WARN', 'Password in .env has changed or auth.json is missing/corrupt. Regenerating password hash.');
-        const newHash = await hashPassword(pwFromEnv);
-        botState.passwordHash = newHash;
-        await fs.writeFile(AUTH_FILE_PATH, JSON.stringify({ passwordHash: newHash }, null, 2));
-    }
+    log('INFO', 'Authentication is unhashed and will be checked directly against .env file.');
     
     scanner.updateSettings(botState.settings);
     realtimeAnalyzer.updateSettings(botState.settings);
@@ -191,8 +136,6 @@ const saveData = async (type) => {
             isRunning: botState.isRunning, tradingMode: botState.tradingMode,
         };
         await fs.writeFile(STATE_FILE_PATH, JSON.stringify(state, null, 2));
-    } else if (type === 'auth') {
-        await fs.writeFile(AUTH_FILE_PATH, JSON.stringify({ passwordHash: botState.passwordHash }, null, 2));
     }
 };
 
@@ -336,7 +279,7 @@ const removeSymbolFrom1mStream = (s) => { botState.hotlist.delete(s); updateSubs
 // --- Bot State & Core ---
 let botState = {
     settings: {}, balance: 10000, activePositions: [], tradeHistory: [], tradeIdCounter: 1,
-    scannerCache: [], isRunning: true, tradingMode: 'VIRTUAL', passwordHash: '',
+    scannerCache: [], isRunning: true, tradingMode: 'VIRTUAL',
     hotlist: new Set(), priceCache: new Map(), circuitBreakerStatus: 'INACTIVE', activeProfileName: 'PERSONNALISE'
 };
 const scanner = new ScannerService(log);
@@ -473,22 +416,24 @@ const startBot = () => {
 const requireAuth = (req, res, next) => req.session?.isAuthenticated ? next() : res.status(401).json({ message: 'Unauthorized' });
 
 // --- API Endpoints ---
-app.post('/api/login', async (req, res) => {
+app.post('/api/login', (req, res) => {
     const { password } = req.body;
+    const appPassword = process.env.APP_PASSWORD;
+
+    if (!appPassword) {
+        log('ERROR', 'CRITICAL: APP_PASSWORD is not set in your .env file.');
+        return res.status(500).json({ success: false, message: 'Server configuration error.' });
+    }
+    
     if (typeof password !== 'string' || !password) {
         return res.status(400).json({ success: false, message: 'Password is required.' });
     }
-    try {
-        const isValid = await verifyPassword(password, botState.passwordHash);
-        if (isValid) {
-            req.session.isAuthenticated = true;
-            res.json({ success: true, message: 'Login successful.' });
-        } else {
-            res.status(401).json({ success: false, message: 'Invalid password.' });
-        }
-    } catch (e) { 
-        log('ERROR', `Login verification error: ${e.message}`);
-        res.status(500).json({ success: false, message: 'Internal server error during authentication.' }); 
+
+    if (password === appPassword) {
+        req.session.isAuthenticated = true;
+        res.json({ success: true, message: 'Login successful.' });
+    } else {
+        res.status(401).json({ success: false, message: 'Invalid password.' });
     }
 });
 app.post('/api/logout', (req, res) => req.session.destroy(() => res.status(204).send()));
