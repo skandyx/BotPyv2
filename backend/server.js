@@ -77,36 +77,38 @@ const STATE_FILE_PATH = path.join(DATA_DIR, 'state.json');
 const AUTH_FILE_PATH = path.join(DATA_DIR, 'auth.json');
 const ensureDataDir = async () => { try { await fs.access(DATA_DIR); } catch { await fs.mkdir(DATA_DIR); } };
 
-// --- Auth ---
-const hashPassword = (password) => new Promise((resolve, reject) => {
-    const salt = crypto.randomBytes(16);
-    crypto.scrypt(password, salt, 64, (err, derivedKey) => {
-        if (err) reject(err);
-        resolve(salt.toString('hex') + ":" + derivedKey.toString('hex'));
-    });
-});
+// --- DEFINITIVE AUTH LOGIC BLOCK (REWRITTEN FOR ROBUSTNESS) ---
+const HASH_OPTIONS = { keylen: 64, N: 16384, r: 8, p: 1 }; // scrypt options
 
-const verifyPassword = (password, hash) => new Promise((resolve, reject) => {
-    const [saltHex, keyHex] = hash.split(':');
-    if (!saltHex || !keyHex) {
-        return resolve(false); // Invalid format
-    }
-    const salt = Buffer.from(saltHex, 'hex');
-    crypto.scrypt(password, salt, 64, (err, derivedKey) => {
-        if (err) return reject(err);
-        try {
-            const keyBuffer = Buffer.from(keyHex, 'hex');
-            if (keyBuffer.length !== derivedKey.length) {
-                return resolve(false);
-            }
-            resolve(crypto.timingSafeEqual(keyBuffer, derivedKey));
-        } catch (e) {
-            // Catches errors if keyHex is not valid hex
-            resolve(false);
+const hashPassword = (password) => {
+    return new Promise((resolve, reject) => {
+        const salt = crypto.randomBytes(16);
+        crypto.scrypt(password, salt, HASH_OPTIONS.keylen, HASH_OPTIONS, (err, derivedKey) => {
+            if (err) reject(err);
+            resolve(`${salt.toString('hex')}:${derivedKey.toString('hex')}`);
+        });
+    });
+};
+
+const verifyPassword = (password, storedHash) => {
+    return new Promise((resolve, reject) => {
+        const [saltHex, keyHex] = storedHash.split(':');
+        if (!saltHex || !keyHex) {
+            return resolve(false); // Catches malformed hash
         }
-    });
-});
+        const salt = Buffer.from(saltHex, 'hex');
+        const storedKey = Buffer.from(keyHex, 'hex');
 
+        crypto.scrypt(password, salt, HASH_OPTIONS.keylen, HASH_OPTIONS, (err, derivedKey) => {
+            if (err) reject(err);
+            if (storedKey.length !== derivedKey.length) {
+                return resolve(false); // Should never happen with same keylen
+            }
+            resolve(crypto.timingSafeEqual(storedKey, derivedKey));
+        });
+    });
+};
+// --- END OF DEFINITIVE AUTH LOGIC BLOCK ---
 
 const loadData = async () => {
     await ensureDataDir();
@@ -152,24 +154,26 @@ const loadData = async () => {
         process.exit(1);
     }
 
+    let existingHash = null;
     try {
-        const authData = JSON.parse(await fs.readFile(AUTH_FILE_PATH, 'utf-8'));
-        if (!authData.passwordHash) throw new Error("Invalid auth file format.");
+        existingHash = JSON.parse(await fs.readFile(AUTH_FILE_PATH, 'utf-8')).passwordHash;
+    } catch {
+        log("WARN", "auth.json not found. A new one will be created from .env.");
+    }
+    
+    let isHashValid = false;
+    if(existingHash) {
+        isHashValid = await verifyPassword(pwFromEnv, existingHash).catch(() => false);
+    }
 
-        const isHashValid = await verifyPassword(pwFromEnv, authData.passwordHash).catch(() => false);
-
-        if (isHashValid) {
-            log('INFO', 'Loaded existing password hash from auth.json.');
-            botState.passwordHash = authData.passwordHash;
-        } else {
-            log('WARN', 'Password in .env has changed or auth.json is corrupt. Regenerating password hash.');
-            botState.passwordHash = await hashPassword(pwFromEnv);
-            await fs.writeFile(AUTH_FILE_PATH, JSON.stringify({ passwordHash: botState.passwordHash }, null, 2));
-        }
-    } catch (error) {
-        log("WARN", "auth.json not found or invalid. Initializing from .env.");
-        botState.passwordHash = await hashPassword(pwFromEnv);
-        await fs.writeFile(AUTH_FILE_PATH, JSON.stringify({ passwordHash: botState.passwordHash }, null, 2));
+    if (isHashValid) {
+        log('INFO', 'Loaded existing password hash from auth.json.');
+        botState.passwordHash = existingHash;
+    } else {
+        log('WARN', 'Password in .env has changed or auth.json is missing/corrupt. Regenerating password hash.');
+        const newHash = await hashPassword(pwFromEnv);
+        botState.passwordHash = newHash;
+        await fs.writeFile(AUTH_FILE_PATH, JSON.stringify({ passwordHash: newHash }, null, 2));
     }
     
     scanner.updateSettings(botState.settings);
@@ -471,14 +475,21 @@ const requireAuth = (req, res, next) => req.session?.isAuthenticated ? next() : 
 // --- API Endpoints ---
 app.post('/api/login', async (req, res) => {
     const { password } = req.body;
+    if (typeof password !== 'string' || !password) {
+        return res.status(400).json({ success: false, message: 'Password is required.' });
+    }
     try {
-        if (await verifyPassword(password, botState.passwordHash)) {
+        const isValid = await verifyPassword(password, botState.passwordHash);
+        if (isValid) {
             req.session.isAuthenticated = true;
-            res.json({ success: true });
+            res.json({ success: true, message: 'Login successful.' });
         } else {
             res.status(401).json({ success: false, message: 'Invalid password.' });
         }
-    } catch (e) { res.status(500).json({ success: false, message: 'Internal error.' }); }
+    } catch (e) { 
+        log('ERROR', `Login verification error: ${e.message}`);
+        res.status(500).json({ success: false, message: 'Internal server error during authentication.' }); 
+    }
 });
 app.post('/api/logout', (req, res) => req.session.destroy(() => res.status(204).send()));
 app.get('/api/check-session', (req, res) => res.json({ isAuthenticated: !!req.session?.isAuthenticated }));
