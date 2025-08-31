@@ -1,5 +1,3 @@
-
-
 import express from 'express';
 import bodyParser from 'body-parser';
 import cors from 'cors';
@@ -418,12 +416,6 @@ app.post('/api/login', (req, res) => {
     const { password } = req.body;
     const appPassword = process.env.APP_PASSWORD;
 
-    // --- START DEBUGGING BLOCK ---
-    // This will log exactly what is being compared to the server console.
-    log('API_CLIENT', `[AUTH DEBUG] Received password attempt: "${password}" (Type: ${typeof password})`);
-    log('API_CLIENT', `[AUTH DEBUG] Comparing with .env password: "${appPassword}" (Type: ${typeof appPassword})`);
-    // --- END DEBUGGING BLOCK ---
-
     if (!appPassword) {
         log('ERROR', 'CRITICAL: APP_PASSWORD is not set in your .env file.');
         return res.status(500).json({ success: false, message: 'Server configuration error.' });
@@ -433,14 +425,17 @@ app.post('/api/login', (req, res) => {
         return res.status(400).json({ success: false, message: 'Password is required.' });
     }
 
-    // Use trim() to remove any accidental whitespace from the .env file or input.
-    if (password.trim() === appPassword.trim()) {
+    const trimmedPassword = password.trim();
+    const trimmedAppPassword = appPassword.trim();
+    
+    if (trimmedPassword === trimmedAppPassword) {
         log('API_CLIENT', '[AUTH SUCCESS] Password match successful.');
         req.session.isAuthenticated = true;
         res.json({ success: true, message: 'Login successful.' });
     } else {
-        log('WARN', '[AUTH FAILED] Password match failed.');
-        res.status(401).json({ success: false, message: 'Invalid password.' });
+        const debugMessage = `Invalid password. Debug Info:\nReceived length: ${trimmedPassword.length}\nExpected length: ${trimmedAppPassword.length}\nCheck for extra spaces in your password or .env file.`;
+        log('WARN', `[AUTH FAILED] ${debugMessage.replace(/\n/g, ' ')}`);
+        res.status(401).json({ success: false, message: debugMessage });
     }
 });
 app.post('/api/logout', (req, res) => req.session.destroy(() => res.status(204).send()));
