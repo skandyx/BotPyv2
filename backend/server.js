@@ -116,10 +116,10 @@ const loadData = async () => {
             SCANNER_DISCOVERY_INTERVAL_SECONDS: 3600, EXCLUDED_PAIRS: "USDCUSDT,FDUSDUSDT",
             AGGRESSIVE_ENTRY_PROFILES: "Le Chasseur de Volatilité", BINANCE_API_KEY: "", BINANCE_SECRET_KEY: "",
             USE_DYNAMIC_PROFILE_SELECTOR: true, ADX_THRESHOLD_RANGE: 20, ATR_PCT_THRESHOLD_VOLATILE: 5,
-            // FIX: Add a default value for the new RSI_OVERBOUGHT_THRESHOLD setting.
             RSI_OVERBOUGHT_THRESHOLD: 70,
             USE_CIRCUIT_BREAKER: true, CIRCUIT_BREAKER_SYMBOL: "BTCUSDT", CIRCUIT_BREAKER_PERIOD_MINUTES: 5,
-            CIRCUIT_BREAKER_ALERT_THRESHOLD_PCT: 1.5, CIRCUIT_BREAKER_BLOCK_THRESHOLD_PCT: 2.5,
+            CIRCUIT_BREAKER_ALERT_THRESHOLD_PCT: -1.5,
+            CIRCUIT_BREAKER_BLOCK_THRESHOLD_PCT: -2.5,
             CIRCUIT_BREAKER_ALERT_POSITION_SIZE_MULTIPLIER: 0.5, CIRCUIT_BREAKER_COOLDOWN_HOURS: 1,
         };
         await saveData('settings');
@@ -348,8 +348,9 @@ const tradingEngine = {
         let posSizePct = tradeSettings.POSITION_SIZE_PCT;
         if (botState.circuitBreakerStatus === 'ALERT') posSizePct *= s.CIRCUIT_BREAKER_ALERT_POSITION_SIZE_MULTIPLIER;
         const posSizeUSD = botState.balance * (posSizePct / 100), qty = posSizeUSD / pair.price;
-        const sl = pair.price - (pair.atr_15m * tradeSettings.SL_ATR_MULTIPLIER), riskPerUnit = pair.price - sl;
-        if (riskPerUnit <= 0) { log('ERROR', `Invalid risk for ${pair.symbol}.`); return false; }
+        const sl = pair.price - (pair.atr_15m * tradeSettings.SL_ATR_MULTIPLIER);
+        if (sl >= pair.price) { log('ERROR', `Invalid SL for ${pair.symbol}. SL (${sl}) must be below entry (${pair.price}).`); return false; }
+        const riskPerUnit = pair.price - sl;
         const tp = pair.price + (riskPerUnit * (tradeSettings.TP_ATR_MULTIPLIER / tradeSettings.SL_ATR_MULTIPLIER));
 
         const newTrade = {
@@ -406,11 +407,11 @@ const monitorCircuitBreaker = async () => {
         const klines = await scanner.fetchKlinesFromBinance(s.CIRCUIT_BREAKER_SYMBOL, '1m', 0, s.CIRCUIT_BREAKER_PERIOD_MINUTES);
         if (klines.length < s.CIRCUIT_BREAKER_PERIOD_MINUTES) return;
         const startPrice = parseFloat(klines[0][1]), currentPrice = parseFloat(klines[klines.length-1][4]);
-        const dropPct = ((startPrice - currentPrice) / startPrice) * 100;
+        const dropPct = ((currentPrice - startPrice) / startPrice) * 100;
 
         let newStatus = 'INACTIVE';
-        if (dropPct >= s.CIRCUIT_BREAKER_BLOCK_THRESHOLD_PCT) newStatus = 'ACTIVE';
-        else if (dropPct >= s.CIRCUIT_BREAKER_ALERT_THRESHOLD_PCT) newStatus = 'ALERT';
+        if (dropPct <= s.CIRCUIT_BREAKER_BLOCK_THRESHOLD_PCT) newStatus = 'ACTIVE';
+        else if (dropPct <= s.CIRCUIT_BREAKER_ALERT_THRESHOLD_PCT) newStatus = 'ALERT';
 
         if (newStatus !== botState.circuitBreakerStatus) {
             log('CIRCUIT_BREAKER', `Status changed from ${botState.circuitBreakerStatus} to ${newStatus}. Drop: ${dropPct.toFixed(2)}%`);
