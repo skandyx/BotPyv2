@@ -1,3 +1,5 @@
+
+
 import express from 'express';
 import bodyParser from 'body-parser';
 import cors from 'cors';
@@ -5,6 +7,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import dotenv from 'dotenv';
 import session from 'express-session';
+import crypto from 'crypto';
 import { WebSocketServer } from 'ws';
 import WebSocket from 'ws';
 import http from 'http';
@@ -71,7 +74,22 @@ const log = (level, message) => {
 const DATA_DIR = path.join(process.cwd(), 'data');
 const SETTINGS_FILE_PATH = path.join(DATA_DIR, 'settings.json');
 const STATE_FILE_PATH = path.join(DATA_DIR, 'state.json');
+const AUTH_FILE_PATH = path.join(DATA_DIR, 'auth.json');
 const ensureDataDir = async () => { try { await fs.access(DATA_DIR); } catch { await fs.mkdir(DATA_DIR); } };
+
+// --- Auth ---
+const hashPassword = (p) => new Promise((res, rej) => {
+    const salt = crypto.randomBytes(16).toString('hex');
+    crypto.scrypt(p, salt, 64, (err, key) => err ? rej(err) : res(salt + ":" + key.toString('hex')));
+});
+const verifyPassword = (p, hash) => new Promise((res, rej) => {
+    const [salt, key] = hash.split(':');
+    if (!salt || !key) return rej(new Error('Invalid hash format.'));
+    crypto.scrypt(p, salt, 64, (err, dKey) => {
+        if (err) return rej(err);
+        try { res(crypto.timingSafeEqual(Buffer.from(key, 'hex'), dKey)); } catch { res(false); }
+    });
+});
 
 const loadData = async () => {
     await ensureDataDir();
@@ -87,12 +105,11 @@ const loadData = async () => {
             SCANNER_DISCOVERY_INTERVAL_SECONDS: 3600, EXCLUDED_PAIRS: "USDCUSDT,FDUSDUSDT",
             AGGRESSIVE_ENTRY_PROFILES: "Le Chasseur de Volatilité", BINANCE_API_KEY: "", BINANCE_SECRET_KEY: "",
             USE_DYNAMIC_PROFILE_SELECTOR: true, ADX_THRESHOLD_RANGE: 20, ATR_PCT_THRESHOLD_VOLATILE: 5,
-            RSI_OVERBOUGHT_THRESHOLD: 75,
+            // FIX: Add a default value for the new RSI_OVERBOUGHT_THRESHOLD setting.
+            RSI_OVERBOUGHT_THRESHOLD: 70,
             USE_CIRCUIT_BREAKER: true, CIRCUIT_BREAKER_SYMBOL: "BTCUSDT", CIRCUIT_BREAKER_PERIOD_MINUTES: 5,
-            CIRCUIT_BREAKER_ALERT_THRESHOLD_PCT: -1.5,
-            CIRCUIT_BREAKER_BLOCK_THRESHOLD_PCT: -2.5,
+            CIRCUIT_BREAKER_ALERT_THRESHOLD_PCT: 1.5, CIRCUIT_BREAKER_BLOCK_THRESHOLD_PCT: 2.5,
             CIRCUIT_BREAKER_ALERT_POSITION_SIZE_MULTIPLIER: 0.5, CIRCUIT_BREAKER_COOLDOWN_HOURS: 1,
-            SLIPPAGE_PCT: 0.05
         };
         await saveData('settings');
     }
@@ -109,14 +126,17 @@ const loadData = async () => {
         botState.balance = botState.settings.INITIAL_VIRTUAL_BALANCE;
         await saveData('state');
     }
-
-    // --- Authentication Check ---
-    if (!process.env.APP_PASSWORD) {
-        log('ERROR', 'CRITICAL: APP_PASSWORD is not set in your .env file. The application cannot start without it. Please configure it and restart.');
-        process.exit(1);
+    try {
+        const auth = JSON.parse(await fs.readFile(AUTH_FILE_PATH, 'utf-8'));
+        if (auth.passwordHash) botState.passwordHash = auth.passwordHash;
+        else throw new Error("Invalid auth file format");
+    } catch {
+        log("WARN", "auth.json not found. Initializing from .env.");
+        const pw = process.env.APP_PASSWORD;
+        if (!pw) { log('ERROR', 'CRITICAL: APP_PASSWORD is not set.'); process.exit(1); }
+        botState.passwordHash = await hashPassword(pw);
+        await fs.writeFile(AUTH_FILE_PATH, JSON.stringify({ passwordHash: botState.passwordHash }, null, 2));
     }
-    log('INFO', 'Authentication mode: Direct .env password comparison (hashing is disabled).');
-    
     scanner.updateSettings(botState.settings);
     realtimeAnalyzer.updateSettings(botState.settings);
 };
@@ -132,6 +152,8 @@ const saveData = async (type) => {
             isRunning: botState.isRunning, tradingMode: botState.tradingMode,
         };
         await fs.writeFile(STATE_FILE_PATH, JSON.stringify(state, null, 2));
+    } else if (type === 'auth') {
+        await fs.writeFile(AUTH_FILE_PATH, JSON.stringify({ passwordHash: botState.passwordHash }, null, 2));
     }
 };
 
@@ -275,7 +297,7 @@ const removeSymbolFrom1mStream = (s) => { botState.hotlist.delete(s); updateSubs
 // --- Bot State & Core ---
 let botState = {
     settings: {}, balance: 10000, activePositions: [], tradeHistory: [], tradeIdCounter: 1,
-    scannerCache: [], isRunning: true, tradingMode: 'VIRTUAL',
+    scannerCache: [], isRunning: true, tradingMode: 'VIRTUAL', passwordHash: '',
     hotlist: new Set(), priceCache: new Map(), circuitBreakerStatus: 'INACTIVE', activeProfileName: 'PERSONNALISE'
 };
 const scanner = new ScannerService(log);
@@ -315,9 +337,8 @@ const tradingEngine = {
         let posSizePct = tradeSettings.POSITION_SIZE_PCT;
         if (botState.circuitBreakerStatus === 'ALERT') posSizePct *= s.CIRCUIT_BREAKER_ALERT_POSITION_SIZE_MULTIPLIER;
         const posSizeUSD = botState.balance * (posSizePct / 100), qty = posSizeUSD / pair.price;
-        const sl = pair.price - (pair.atr_15m * tradeSettings.SL_ATR_MULTIPLIER);
-        if (sl >= pair.price) { log('ERROR', `Invalid SL for ${pair.symbol}. SL (${sl}) must be below entry (${pair.price}).`); return false; }
-        const riskPerUnit = pair.price - sl;
+        const sl = pair.price - (pair.atr_15m * tradeSettings.SL_ATR_MULTIPLIER), riskPerUnit = pair.price - sl;
+        if (riskPerUnit <= 0) { log('ERROR', `Invalid risk for ${pair.symbol}.`); return false; }
         const tp = pair.price + (riskPerUnit * (tradeSettings.TP_ATR_MULTIPLIER / tradeSettings.SL_ATR_MULTIPLIER));
 
         const newTrade = {
@@ -343,7 +364,7 @@ const tradingEngine = {
             
             const s = botState.settings;
             if (s.USE_TRAILING_STOP_LOSS) {
-                if (s.USE_ADAPTIVE_TRAILING_STOP && !pos.trailing_stop_tightened && pos.initial_risk_per_unit && price >= pos.entry_price + pos.initial_risk_per_unit) {
+                if (s.USE_ADAPTIVE_TRAILING_STOP && !pos.trailing_stop_tightened && price >= pos.entry_price + pos.initial_risk_per_unit) {
                     pos.current_trailing_stop_atr_multiplier = s.ADAPTIVE_TRAILING_STOP_TIGHTEN_MULTIPLIER;
                     pos.trailing_stop_tightened = true;
                     log('TRADE', `[${pos.symbol}] Adaptive SL triggered. Multiplier tightened to ${pos.current_trailing_stop_atr_multiplier}x ATR.`);
@@ -374,11 +395,11 @@ const monitorCircuitBreaker = async () => {
         const klines = await scanner.fetchKlinesFromBinance(s.CIRCUIT_BREAKER_SYMBOL, '1m', 0, s.CIRCUIT_BREAKER_PERIOD_MINUTES);
         if (klines.length < s.CIRCUIT_BREAKER_PERIOD_MINUTES) return;
         const startPrice = parseFloat(klines[0][1]), currentPrice = parseFloat(klines[klines.length-1][4]);
-        const dropPct = ((currentPrice - startPrice) / startPrice) * 100;
+        const dropPct = ((startPrice - currentPrice) / startPrice) * 100;
 
         let newStatus = 'INACTIVE';
-        if (dropPct <= s.CIRCUIT_BREAKER_BLOCK_THRESHOLD_PCT) newStatus = 'ACTIVE';
-        else if (dropPct <= s.CIRCUIT_BREAKER_ALERT_THRESHOLD_PCT) newStatus = 'ALERT';
+        if (dropPct >= s.CIRCUIT_BREAKER_BLOCK_THRESHOLD_PCT) newStatus = 'ACTIVE';
+        else if (dropPct >= s.CIRCUIT_BREAKER_ALERT_THRESHOLD_PCT) newStatus = 'ALERT';
 
         if (newStatus !== botState.circuitBreakerStatus) {
             log('CIRCUIT_BREAKER', `Status changed from ${botState.circuitBreakerStatus} to ${newStatus}. Drop: ${dropPct.toFixed(2)}%`);
@@ -412,31 +433,16 @@ const startBot = () => {
 const requireAuth = (req, res, next) => req.session?.isAuthenticated ? next() : res.status(401).json({ message: 'Unauthorized' });
 
 // --- API Endpoints ---
-app.post('/api/login', (req, res) => {
+app.post('/api/login', async (req, res) => {
     const { password } = req.body;
-    const appPassword = process.env.APP_PASSWORD;
-
-    if (!appPassword) {
-        log('ERROR', 'CRITICAL: APP_PASSWORD is not set in your .env file.');
-        return res.status(500).json({ success: false, message: 'Server configuration error.' });
-    }
-    
-    if (typeof password !== 'string' || !password) {
-        return res.status(400).json({ success: false, message: 'Password is required.' });
-    }
-
-    const trimmedPassword = password.trim();
-    const trimmedAppPassword = appPassword.trim();
-    
-    if (trimmedPassword === trimmedAppPassword) {
-        log('API_CLIENT', '[AUTH SUCCESS] Password match successful.');
-        req.session.isAuthenticated = true;
-        res.json({ success: true, message: 'Login successful.' });
-    } else {
-        const debugMessage = `Invalid password. Debug Info:\nReceived length: ${trimmedPassword.length}\nExpected length: ${trimmedAppPassword.length}\nCheck for extra spaces in your password or .env file.`;
-        log('WARN', `[AUTH FAILED] ${debugMessage.replace(/\n/g, ' ')}`);
-        res.status(401).json({ success: false, message: debugMessage });
-    }
+    try {
+        if (await verifyPassword(password, botState.passwordHash)) {
+            req.session.isAuthenticated = true;
+            res.json({ success: true });
+        } else {
+            res.status(401).json({ success: false, message: 'Invalid credentials.' });
+        }
+    } catch (e) { res.status(500).json({ success: false, message: 'Internal error.' }); }
 });
 app.post('/api/logout', (req, res) => req.session.destroy(() => res.status(204).send()));
 app.get('/api/check-session', (req, res) => res.json({ isAuthenticated: !!req.session?.isAuthenticated }));
@@ -479,20 +485,8 @@ app.post('/api/clear-data', requireAuth, async (req, res) => {
     await saveData('state'); broadcast({ type: 'POSITIONS_UPDATED' }); res.json({ success: true });
 });
 app.get('/api/bot/status', requireAuth, (req, res) => res.json({ isRunning: botState.isRunning, circuitBreakerStatus: botState.circuitBreakerStatus }));
-app.post('/api/bot/start', requireAuth, async (req, res) => { botState.isRunning = true; await saveData('state'); broadcast({ type: 'BOT_STATUS_UPDATE', payload: { isRunning: true, circuitBreakerStatus: botState.circuitBreakerStatus }}); res.json({ success: true }); });
-app.post('/api/bot/stop', requireAuth, async (req, res) => { botState.isRunning = false; await saveData('state'); broadcast({ type: 'BOT_STATUS_UPDATE', payload: { isRunning: false, circuitBreakerStatus: botState.circuitBreakerStatus }}); res.json({ success: true }); });
-app.get('/api/mode', requireAuth, (req, res) => res.json({ mode: botState.tradingMode }));
-app.post('/api/mode', requireAuth, async (req, res) => {
-    const { mode } = req.body;
-    if (['VIRTUAL', 'REAL_PAPER', 'REAL_LIVE'].includes(mode)) {
-        botState.tradingMode = mode;
-        await saveData('state');
-        log('INFO', `Trading mode switched to ${mode}`);
-        res.json({ success: true, mode: botState.tradingMode });
-    } else {
-        res.status(400).json({ success: false, message: 'Invalid mode' });
-    }
-});
+app.post('/api/bot/start', requireAuth, async (req, res) => { botState.isRunning = true; await saveData('state'); res.json({ success: true }); });
+app.post('/api/bot/stop', requireAuth, async (req, res) => { botState.isRunning = false; await saveData('state'); res.json({ success: true }); });
 
 // --- Serve Frontend ---
 const __dirname = path.resolve();

@@ -4,7 +4,7 @@ import { positionService } from '../services/positionService';
 
 interface AuthContextType {
   isAuthenticated: boolean;
-  login: (password: string) => Promise<void>;
+  login: (password: string) => Promise<boolean>;
   logout: () => void;
   isLoading: boolean;
 }
@@ -36,24 +36,19 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     verifySession();
   }, []);
 
-  const login = async (password: string): Promise<void> => {
+  const login = async (password: string): Promise<boolean> => {
     try {
-      // api.login will throw on a non-ok response (like 401)
-      // and will resolve with { success: true, ... } on a 200 OK.
       const response = await api.login(password);
       if (response.success) {
         setIsAuthenticated(true);
         const initialPositions = await api.fetchActivePositions();
         positionService._initialize(initialPositions);
-      } else {
-        // This case is unlikely if the backend uses HTTP status codes correctly,
-        // but it's a good safeguard.
-        throw new Error(response.message || 'Authentication failed');
+        return true;
       }
+      return false;
     } catch (error) {
       console.error("Login failed:", error);
-      // Re-throw to allow the UI to display the specific error message
-      throw error;
+      return false;
     }
   };
 

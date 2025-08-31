@@ -14,11 +14,11 @@ const LoginPage: React.FC = () => {
     setIsLoading(true);
     setError('');
 
-    try {
-      await login(password);
+    const success = await login(password);
+    if (success) {
       navigate('/dashboard');
-    } catch (error: any) {
-      setError(error.message || 'An unexpected error occurred.');
+    } else {
+      setError('Invalid password.');
       setIsLoading(false);
     }
   };
@@ -47,12 +47,12 @@ const LoginPage: React.FC = () => {
               placeholder="Password"
             />
           </div>
-          {error && <p className="text-sm text-red-400 whitespace-pre-wrap">{error}</p>}
+          {error && <p className="text-sm text-red-400">{error}</p>}
           <div>
             <button
               type="submit"
               disabled={isLoading}
-              className="group relative flex w-full justify-center rounded-md border border-transparent bg-[#f0b90b] py-3 px-4 text-sm font-semibold text-black hover:bg-yellow-500 focus:outline-none focus:ring-2 focus:ring-[#f0b90b] focus:ring-offset-2 focus:ring-offset-[#141f] disabled:opacity-50 disabled:cursor-not-allowed"
+              className="group relative flex w-full justify-center rounded-md border border-transparent bg-[#f0b90b] py-3 px-4 text-sm font-semibold text-black hover:bg-yellow-500 focus:outline-none focus:ring-2 focus:ring-[#f0b90b] focus:ring-offset-2 focus:ring-offset-[#14181f] disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isLoading ? (
                 <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-black" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
