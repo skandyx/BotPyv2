@@ -1,6 +1,5 @@
 
 
-
 import express from 'express';
 import bodyParser from 'body-parser';
 import cors from 'cors';
@@ -113,13 +112,12 @@ const loadData = async () => {
         await saveData('state');
     }
 
-    // --- Simplified Auth Check ---
-    const pwFromEnv = process.env.APP_PASSWORD;
-    if (!pwFromEnv) {
-        log('ERROR', 'CRITICAL: APP_PASSWORD is not set in your .env file. Please configure it and restart.');
+    // --- Authentication Check ---
+    if (!process.env.APP_PASSWORD) {
+        log('ERROR', 'CRITICAL: APP_PASSWORD is not set in your .env file. The application cannot start without it. Please configure it and restart.');
         process.exit(1);
     }
-    log('INFO', 'Authentication is unhashed and will be checked directly against .env file.');
+    log('INFO', 'Authentication mode: Direct .env password comparison (hashing is disabled).');
     
     scanner.updateSettings(botState.settings);
     realtimeAnalyzer.updateSettings(botState.settings);
@@ -420,6 +418,12 @@ app.post('/api/login', (req, res) => {
     const { password } = req.body;
     const appPassword = process.env.APP_PASSWORD;
 
+    // --- START DEBUGGING BLOCK ---
+    // This will log exactly what is being compared to the server console.
+    log('API_CLIENT', `[AUTH DEBUG] Received password attempt: "${password}" (Type: ${typeof password})`);
+    log('API_CLIENT', `[AUTH DEBUG] Comparing with .env password: "${appPassword}" (Type: ${typeof appPassword})`);
+    // --- END DEBUGGING BLOCK ---
+
     if (!appPassword) {
         log('ERROR', 'CRITICAL: APP_PASSWORD is not set in your .env file.');
         return res.status(500).json({ success: false, message: 'Server configuration error.' });
@@ -429,10 +433,13 @@ app.post('/api/login', (req, res) => {
         return res.status(400).json({ success: false, message: 'Password is required.' });
     }
 
-    if (password === appPassword) {
+    // Use trim() to remove any accidental whitespace from the .env file or input.
+    if (password.trim() === appPassword.trim()) {
+        log('API_CLIENT', '[AUTH SUCCESS] Password match successful.');
         req.session.isAuthenticated = true;
         res.json({ success: true, message: 'Login successful.' });
     } else {
+        log('WARN', '[AUTH FAILED] Password match failed.');
         res.status(401).json({ success: false, message: 'Invalid password.' });
     }
 });
